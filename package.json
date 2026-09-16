@@ -1,0 +1,38 @@
+{
+  "name": "vocue",
+  "productName": "Vocue",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vocue - 本地优先的 macOS AI 面试助手",
+  "main": "out/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@electron-toolkit/utils": "^4.0.0",
+    "lucide-react": "^0.525.0",
+    "pdfjs-dist": "^6.2.108",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^4.6.0",
+    "electron": "^44.3.0",
+    "electron-vite": "^4.0.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.4",
+    "vitest": "^5.0.1"
+  }
+}

@@ -37,14 +37,16 @@ function pick(message: string): string {
     return '账户额度不足，请检查服务商账户'
   }
   // 服务端
-  if (/50\d{2}|服务繁忙|overload|服务器繁忙|55000031/i.test(message)) {
+  if (/\b55\d{6}\b|服务繁忙|overload|服务器繁忙|55000031/i.test(message)) {
     return '识别服务暂时不可用，请稍后重试'
   }
   // 音频
   if (/麦克风|microphone|NotAllowedError|Permission/i.test(message)) {
     return '无法使用麦克风，请在系统设置中允许 Vocue 访问麦克风'
   }
-  if (/空音频|45000002/.test(message)) return '没有录到声音，请重试'
+  if (/空音频|45000002/.test(message)) return '没有录到声音，请按住按钮说完后再松开'
+  if (/音频格式|45000151/.test(message)) return '语音数据格式不正确，请重新启动应用后重试'
+  if (/请求参数|45000001/.test(message)) return '语音识别请求参数不正确，请检查服务配置'
   return ''
 }
 

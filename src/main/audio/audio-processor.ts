@@ -1,5 +1,6 @@
 /**
- * 48kHz 立体声 PCM → 16kHz 单声道，并按固定时长切包。
+ * 24kHz 立体声 PCM → 16kHz 单声道，并按固定时长切包。
+ * SystemAudioDump 上游固定输出 24kHz / Int16 / stereo。
  * 200ms 是官方（Python/Go）流式 demo 的默认分包大小，
  * 官方文档也建议双向流式固定 200ms 以获得最佳性能。
  */
@@ -9,14 +10,14 @@ export class PcmAudioProcessor {
   private stereoRemainder: Buffer<ArrayBufferLike> = Buffer.alloc(0)
 
   constructor(
-    private readonly inputRate = 48_000,
+    private readonly inputRate = 24_000,
     private readonly outputRate = 16_000,
     packetDurationMs = 200,
   ) {
     this.packetBytes = Math.round((outputRate * packetDurationMs) / 1000) * 2
   }
 
-  pushStereo48k(chunk: Buffer): Buffer[] {
+  pushStereo24k(chunk: Buffer): Buffer[] {
     let source = this.stereoRemainder.length ? Buffer.concat([this.stereoRemainder, chunk]) : chunk
     const usableBytes = source.length - (source.length % 4)
     this.stereoRemainder = source.subarray(usableBytes)

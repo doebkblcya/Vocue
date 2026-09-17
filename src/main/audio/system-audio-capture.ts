@@ -48,33 +48,57 @@ export class SystemAudioCapture extends EventEmitter<SystemAudioCaptureEvents> {
 
     const child = spawn(executable, [], { stdio: ['ignore', 'pipe', 'pipe'] })
     this.process = child
+    let startupOutput = ''
     let startupError = ''
+    let started = false
 
-    child.stdout.on('data', (chunk: Buffer) => this.emit('data', chunk))
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (started) {
+        this.emit('data', chunk)
+        return
+      }
+      // 上游工具把启动诊断误写到了 stdout，而 stdout 后续又承载裸 PCM。
+      // 启动窗口内统一丢弃，既能读到权限错误，也不会把文本当音频发给 ASR。
+      if (startupOutput.length < 16_384) startupOutput += chunk.toString('utf8')
+    })
     child.stderr.on('data', (chunk: Buffer) => {
       const line = chunk.toString().trim()
       if (line) log.warn(`SystemAudioDump: ${line}`)
-      startupError += line
+      startupError += `${line}\n`
       if (/permission|not authorized|SCStreamErrorDomain/i.test(line)) {
         this.emit('error', new Error('系统音频捕获失败，请在系统设置中授予录屏与系统录音权限'))
       }
     })
-    child.on('error', (error) => this.handleExit(error))
-    child.on('close', (code) => {
-      if (this.process === child) this.process = null
-      if (!this.desiredRunning) return
-      const detail = startupError ? `：${startupError.slice(-200)}` : ''
-      this.handleExit(new Error(`系统音频进程退出 (${code ?? 'unknown'})${detail}`))
-    })
 
     await new Promise<void>((resolvePromise, reject) => {
+      let settled = false
       const timer = setTimeout(() => {
-        if (child.exitCode === null) resolvePromise()
-        else reject(new Error(startupError || '系统音频工具启动失败'))
+        if (settled) return
+        settled = true
+        if (child.exitCode === null) {
+          // 丢弃启动阶段的文字和最前面的极短音频，从这里开始 stdout 才只按 PCM 处理。
+          started = true
+          startupOutput = ''
+          resolvePromise()
+        } else {
+          reject(describeStartupFailure(startupOutput, startupError))
+        }
       }, 700)
       child.once('error', (error) => {
+        if (settled) return
+        settled = true
         clearTimeout(timer)
         reject(error)
+      })
+      child.once('close', (code) => {
+        if (this.process === child) this.process = null
+        const failure = describeStartupFailure(startupOutput, startupError, code)
+        if (!settled) {
+          settled = true
+          clearTimeout(timer)
+          reject(failure)
+        }
+        if (this.desiredRunning) this.handleExit(failure)
       })
     })
   }
@@ -95,4 +119,19 @@ export class SystemAudioCapture extends EventEmitter<SystemAudioCaptureEvents> {
       })
     }, delay)
   }
+}
+
+export function describeStartupFailure(
+  stdout: string,
+  stderr: string,
+  code?: number | null,
+): Error {
+  const detail = `${stdout}\n${stderr}`.trim()
+  if (/screen recording permission|required|permission denied|not authorized/i.test(detail)) {
+    return new Error(
+      '系统音频捕获没有权限，请在“系统设置 → 隐私与安全性 → 屏幕与系统音频录制”中允许 SystemAudioDump',
+    )
+  }
+  const suffix = detail ? `：${detail.slice(-200)}` : ''
+  return new Error(`系统音频工具启动失败 (${code ?? 'unknown'})${suffix}`)
 }

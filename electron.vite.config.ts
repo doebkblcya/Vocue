@@ -8,6 +8,17 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
+    // Sandboxed preload scripts are evaluated as classic scripts by Electron.
+    // Force a single CommonJS bundle instead of inheriting the package's ESM format.
+    build: {
+      rollupOptions: {
+        output: {
+          format: 'cjs',
+          entryFileNames: '[name].cjs',
+          inlineDynamicImports: true,
+        },
+      },
+    },
   },
   renderer: {
     resolve: {

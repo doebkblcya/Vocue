@@ -1,6 +1,6 @@
 import { gzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
-import { buildFrame, parseFrame } from '../src/main/asr/doubao-asr'
+import { buildFrame, isRetriableServerError, parseFrame } from '../src/main/asr/doubao-asr'
 
 describe('豆包 ASR 帧编解码', () => {
   it('构造带正序号的客户端音频帧', () => {
@@ -50,5 +50,11 @@ describe('豆包 ASR 帧编解码', () => {
 
     expect(parsed.errorCode).toBe(45_000_001)
     expect(parsed.body?.message).toBe('凭证错误')
+  })
+
+  it('只把 55 系服务端故障视为可自动重试', () => {
+    expect(isRetriableServerError(55_000_031)).toBe(true)
+    expect(isRetriableServerError(45_000_002)).toBe(false)
+    expect(isRetriableServerError(undefined)).toBe(false)
   })
 })

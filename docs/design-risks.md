@@ -55,7 +55,7 @@ preload/index.ts        通过 contextBridge 暴露 window.vocue
 
 ```
 【系统音频模式】
-SystemAudioDump(独立二进制, 48k 立体声 PCM)
+SystemAudioDump(独立二进制, 24k 立体声 PCM)
   → stdout → SystemAudioCapture
   → PcmAudioProcessor(降采样 16k 单声道, 切 200ms 包)
   → DoubaoAsr.sendAudio(WebSocket 二进制帧)
@@ -341,12 +341,12 @@ floatingWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 | --- | --- |
 | **R1** 文档容量 | 分析用的 prompt(JD 30k / 简历 40k / 单文档 20k)比面试用的**更大**,冷启动最慢的是它而不是回答 |
 | **R2** 思考模式 | **已实现**—— 开启后发送强度并移除无效 `temperature`;产品只展示最终回答,不展示思维链 |
-| **R3** 全场录音 | **B7**(`number[]` + `splice` 的 O(n²));48k 立体声无编码器,1 小时约 690MB;麦克风需从「按住才跑」改为常开 |
+| **R3** 全场录音 | **B7**(`number[]` + `splice` 的 O(n²));24k 立体声无编码器,1 小时约 346MB;麦克风需从「按住才跑」改为常开 |
 | **R4** 文件识别 | 流式用 `volc.seedasr.sauc.duration`,文件识别是另一套端点 + 另一个 resource id,**同 Key 是否可用必须实测** |
 | **R5** 复盘 | 新建表可行;但 **A6** 意味着以后改表结构只能手写兼容逻辑 |
 | **R6** 追问上下文 | **暂用旧策略**—— 最近 4 轮问题 + AI 建议回答;回答不是候选人真实口述,后续仍需替换 |
 | **R7** 截屏提问 | **已实现**—— 捕获鼠标所在显示器,临时隐藏 Vocue,图片只放 `user` message,发送前确认隐私影响 |
-| **R8** 要点先行 | **已实现**—— 单次流式回答拆成独立要点区与详细区 |
+| **R8** 要点先行 | **已实现**—— 单次流式回答拆成独立要点区与详细区;要点约 60 字,详细默认约 120～180 字 |
 | **R9** 仿真面试 | `SessionStatus` 目前只描述「听/说」一种角色,角色反转要动这套枚举 |
 
 ---

@@ -32,6 +32,12 @@ describe('技术错误翻译', () => {
     expect(toUserMessage(new Error('连接豆包语音识别超时'))).toBe(
       '连接语音识别服务超时，请检查网络后重试',
     )
+    expect(toUserMessage(new Error('豆包语音识别错误 (45000002)'))).toBe(
+      '没有录到声音，请按住按钮说完后再松开',
+    )
+    expect(toUserMessage(new Error('豆包语音识别错误 (55000031)'))).toBe(
+      '识别服务暂时不可用，请稍后重试',
+    )
   })
 
   it('凭证错误不暴露 HTTP 状态码和服务端原文', () => {

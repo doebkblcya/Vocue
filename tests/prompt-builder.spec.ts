@@ -42,6 +42,22 @@ describe('prompt builder', () => {
     expect(prompt).toContain('中文实时面试助手')
   })
 
+  it('把回答限制为适合现场阅读的短提词', () => {
+    for (const prompt of [
+      buildGenericInterviewSystemPrompt(),
+      buildInterviewSystemPrompt({
+        id: '1', name: '测试岗位', jobDescription: '', resume: '', analysis: null,
+        systemPrompt: '', createdAt: '', updatedAt: '', documents: [],
+      }, null),
+    ]) {
+      expect(prompt).toContain('2 到 3 个短要点')
+      expect(prompt).toContain('约 60 个汉字以内')
+      expect(prompt).toContain('约 120 到 180 个汉字')
+      expect(prompt).toContain('不超过约 250 个汉字')
+      expect(prompt).toContain('不得换一种说法重复')
+    }
+  })
+
   it('开始面试时忽略数据库里的旧提示词快照', () => {
     const preparation: Preparation = {
       id: '1',

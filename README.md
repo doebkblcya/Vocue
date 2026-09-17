@@ -10,7 +10,7 @@
 - DeepSeek 官方 API，使用 `deepseek-flash`（V4.1 Flash）非思考模式流式回答
 - 可选关闭 / 低 / 高 / 最大思考强度；默认关闭以保证实时性
 - 临时沿用最近 4 轮问题与 AI 建议回答作为追问上下文，后续接入真实口述后再替换
-- 回答先流式展示独立要点区，再展示详细展开
+- 回答先流式展示 2～3 条短要点，再展示控制篇幅的必要补充
 - 回答窗可截取鼠标所在显示器提问，发送前会明确确认隐私影响
 - 本地 SQLite 保存面试准备，不永久保存完整会话
 - JD、简历及最多 5 份补充资料；支持有文字层的 PDF、Markdown、TXT
@@ -59,7 +59,7 @@ npm run build
 
 ## 第三方组件
 
-`assets/SystemAudioDump` 是预编译的 macOS 可执行文件，用于捕获系统音频并以 raw PCM 输出到 stdout。
+`assets/SystemAudioDump` 是预编译的 macOS 可执行文件，用于捕获系统音频并以 24kHz、16-bit、立体声 raw PCM 输出到 stdout。
 
 - 来源：[sohzm/systemAudioDump](https://github.com/sohzm/systemAudioDump)
 - 许可：MIT

@@ -7,8 +7,17 @@ const initialTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ?
 document.documentElement.dataset.theme = initialTheme
 document.documentElement.style.colorScheme = initialTheme
 
-createRoot(document.getElementById('root') as HTMLElement).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
+const root = createRoot(document.getElementById('root') as HTMLElement)
+
+root.render(
+  window.vocue ? (
+    <StrictMode>
+      <App />
+    </StrictMode>
+  ) : (
+    <div className="loading">
+      Vocue 启动失败：安全桥接未加载。请重新启动应用；如果仍然出现，请查看启动终端中的 preload
+      错误。
+    </div>
+  ),
 )

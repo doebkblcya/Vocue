@@ -136,6 +136,7 @@ export class DoubaoAsr {
   markIdle(): void {
     this.idleDispose = true
     this.desiredConnected = false
+    this.generation += 1
     const socket = this.socket
     this.socket = null
     if (socket?.readyState === WebSocket.OPEN) socket.close(1000)
@@ -146,25 +147,15 @@ export class DoubaoAsr {
 
   disconnect(): void {
     this.desiredConnected = false
+    this.generation += 1
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = null
     const socket = this.socket
     this.socket = null
-    if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(
-        buildFrame(
-          MESSAGE_AUDIO_ONLY_REQUEST,
-          FLAGS_NEGATIVE_SEQUENCE,
-          0,
-          1,
-          gzipSync(Buffer.alloc(0)),
-          -this.sequence,
-        ),
-      )
-      socket.close(1000)
-    } else {
-      socket?.terminate()
-    }
+    // 断开连接不是一次录音结算。发送空的「最后一包」会让服务端返回
+    // 45000002（空音频），并可能在新连接建立后以迟到错误污染界面。
+    if (socket?.readyState === WebSocket.OPEN) socket.close(1000)
+    else socket?.terminate()
   }
 
   isOpen(): boolean {
@@ -318,6 +309,12 @@ export class DoubaoAsr {
       const response = parseFrame(Buffer.isBuffer(raw) ? raw : Buffer.from(raw as ArrayBuffer))
       if (response.type === MESSAGE_ERROR) {
         const message = response.body?.message || `豆包语音识别错误 (${response.errorCode ?? 'unknown'})`
+        log.error('豆包 ASR 服务端错误', `${response.errorCode ?? 'unknown'}: ${message}`)
+        if (isRetriableServerError(response.errorCode)) {
+          this.callbacks.onState('reconnecting', message, response.errorCode)
+          this.socket?.close(1012, 'retryable server error')
+          return
+        }
         this.callbacks.onState('error', message, response.errorCode)
         return
       }
@@ -411,6 +408,10 @@ export class DoubaoAsr {
       void this.openSocket().catch(() => this.scheduleReconnect())
     }, delay)
   }
+}
+
+export function isRetriableServerError(code: number | undefined): boolean {
+  return code !== undefined && code >= 55_000_000 && code < 56_000_000
 }
 
 export function buildFrame(

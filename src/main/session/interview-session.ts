@@ -260,11 +260,20 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
     // 判停方式按模式二选一：
     // 按住说话靠「最后一包」，系统音频靠服务端 VAD 判停
     const params = this.state.mode === 'system' ? SYSTEM_AUDIO_PARAMS : PUSH_TO_TALK_PARAMS
-    return new DoubaoAsr(config, {
-      onPartial: (text) => this.patchState({ partialTranscript: text }),
-      onFinal: (text) => this.handleFinalTranscript(text),
-      onSegmentEnd: (text) => this.handleFinalTranscript(text),
+    let asr!: DoubaoAsr
+    asr = new DoubaoAsr(config, {
+      onPartial: (text) => {
+        if (this.asr === asr) this.patchState({ partialTranscript: text })
+      },
+      onFinal: (text) => {
+        if (this.asr === asr) this.handleFinalTranscript(text)
+      },
+      onSegmentEnd: (text) => {
+        if (this.asr === asr) this.handleFinalTranscript(text)
+      },
       onState: (state, message, code) => {
+        // 已被刷新或替换的连接即使收到迟到错误，也不能污染当前会话状态。
+        if (this.asr !== asr) return
         if (code === 45_000_081 && this.state.mode === 'microphone' && !this.segmentActive) {
           const idleAsr = this.asr
           this.asr = null
@@ -309,13 +318,14 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
         }
       },
     }, params)
+    return asr
   }
 
   private async startSystemAudio(): Promise<void> {
     const capture = new SystemAudioCapture()
     this.systemAudio = capture
     capture.on('data', (chunk) => {
-      for (const packet of this.processor.pushStereo48k(chunk)) this.asr?.sendAudio(packet)
+      for (const packet of this.processor.pushStereo24k(chunk)) this.asr?.sendAudio(packet)
     })
     capture.on('reconnecting', (attempt) => {
       this.patchState({ status: 'reconnecting', error: `系统音频正在第 ${attempt} 次重连` })

@@ -14,7 +14,7 @@ let mainWindow: BrowserWindow | null = null
 let floatingWindow: BrowserWindow | null = null
 let captureProtectionEnabled = false
 
-const preloadPath = (): string => join(__dirname, '../preload/index.mjs')
+const preloadPath = (): string => join(__dirname, '../preload/index.cjs')
 const MAIN_WINDOW_SIZE = { width: 1120, height: 760 }
 const FLOATING_WINDOW_SIZE = { width: 460, height: 560 }
 

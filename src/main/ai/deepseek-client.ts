@@ -4,7 +4,7 @@ import { toUserMessage } from '../../shared/error-message'
 export const DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
 export const DEEPSEEK_MODEL = 'deepseek-flash'
 
-type MessageContent =
+export type MessageContent =
   | string
   | Array<
       | { type: 'text'; text: string }
@@ -109,6 +109,7 @@ export class DeepSeekClient {
     signal?: AbortSignal,
   ): Promise<Response> {
     if (!this.settings.deepseekApiKey) throw new Error('尚未配置 DeepSeek API Key')
+    const thinkingEnabled = this.settings.thinkingEffort !== 'disabled'
     const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -119,8 +120,10 @@ export class DeepSeekClient {
         model: DEEPSEEK_MODEL,
         messages: input.messages,
         stream: input.stream,
-        thinking: { type: 'disabled' },
-        temperature: 0.45,
+        thinking: { type: thinkingEnabled ? 'enabled' : 'disabled' },
+        ...(thinkingEnabled
+          ? { reasoning_effort: this.settings.thinkingEffort }
+          : { temperature: 0.45 }),
         ...(input.json ? { response_format: { type: 'json_object' } } : {}),
       }),
       signal,

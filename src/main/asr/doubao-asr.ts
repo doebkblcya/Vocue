@@ -413,7 +413,7 @@ export class DoubaoAsr {
   }
 }
 
-function buildFrame(
+export function buildFrame(
   messageType: number,
   flags: number,
   serialization: number,
@@ -436,7 +436,7 @@ function buildFrame(
   return Buffer.concat([header, payload])
 }
 
-function parseFrame(buffer: Buffer): {
+export function parseFrame(buffer: Buffer): {
   type: number
   errorCode?: number
   isLastPackage: boolean

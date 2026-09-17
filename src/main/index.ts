@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, nativeTheme } from 'electron'
+import { app, nativeTheme } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { registerIpc } from './ipc/register'
 import { log } from './log'
@@ -10,6 +10,7 @@ import {
   broadcast,
   createMainWindow,
   setCaptureProtection,
+  showMainWindow,
   syncWindowThemeBackground,
 } from './windows'
 
@@ -19,6 +20,7 @@ if (process.platform !== 'darwin' || process.arch !== 'arm64') {
 
 let database: LocalDatabase | null = null
 let session: InterviewSession | null = null
+let quitting = false
 
 void app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.vocue.desktop')
@@ -35,14 +37,33 @@ void app.whenReady().then(() => {
   createMainWindow()
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
+    showMainWindow()
   })
 })
 
-app.on('window-all-closed', () => app.quit())
+app.on('window-all-closed', () => {
+  if (!quitting) app.quit()
+})
 
-app.on('before-quit', () => {
-  void session?.stop()
-  database?.close()
-  database = null
+app.on('before-quit', (event) => {
+  if (quitting) return
+  event.preventDefault()
+  quitting = true
+  void (async () => {
+    try {
+      await session?.stop()
+    } catch (error) {
+      log.error('退出时清理会话失败', error)
+    } finally {
+      session = null
+      try {
+        database?.close()
+      } catch (error) {
+        log.error('退出时关闭数据库失败', error)
+      } finally {
+        database = null
+        app.quit()
+      }
+    }
+  })()
 })

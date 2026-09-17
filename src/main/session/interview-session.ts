@@ -1,10 +1,14 @@
 import { EventEmitter } from 'node:events'
-import type {
-  AudioMode,
-  InterviewSessionState,
+import {
+  createInitialInterviewSessionState,
+  type AudioMode,
+  type InterviewSessionState,
 } from '../../shared/types'
-import { DeepSeekClient, type ChatMessage } from '../ai/deepseek-client'
-import { buildGenericInterviewSystemPrompt, buildInterviewSystemPrompt } from '../ai/prompt-builder'
+import { DeepSeekClient, type ChatMessage, type MessageContent } from '../ai/deepseek-client'
+import {
+  buildCurrentInterviewSystemPrompt,
+  parseInterviewAnswer,
+} from '../ai/prompt-builder'
 import {
   DoubaoAsr,
   PUSH_TO_TALK_PARAMS,
@@ -25,26 +29,17 @@ import { toUserMessage } from '../../shared/error-message'
 const SEGMENT_SAFETY_TIMEOUT_MS = 8000
 
 export class InterviewSession extends EventEmitter<{ state: [InterviewSessionState] }> {
-  private state: InterviewSessionState = {
-    status: 'idle',
-    mode: null,
-    preparationId: null,
-    preparationName: '',
-    partialTranscript: '',
-    finalTranscript: '',
-    answer: '',
-    error: '',
-    microphoneActive: false,
-    generating: false,
-  }
+  private state: InterviewSessionState = createInitialInterviewSessionState()
   private asr: DoubaoAsr | null = null
   private deepseek: DeepSeekClient | null = null
   private systemAudio: SystemAudioCapture | null = null
   private processor = new PcmAudioProcessor()
   private systemPrompt = ''
+  /** 临时沿用 Bready 风格：最多保留 4 轮问题与 AI 建议回答。 */
   private history: ChatMessage[] = []
-  private answerQueue = Promise.resolve()
   private answerAbort: AbortController | null = null
+  /** 每次收到新问题都会递增；旧回答的迟到流片段据此失效。 */
+  private answerGeneration = 0
   /** 当前是否有一段录音正在进行（按下到松手之间） */
   private segmentActive = false
   /** ASR 尚未就绪时先把音频存在这里，连上后顺序补发 */
@@ -69,9 +64,7 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
     if (!this.settings.isReady()) throw new Error('请先完成 API 配置')
 
     const config = this.settings.get()
-    this.systemPrompt = preparation
-      ? preparation.systemPrompt || buildInterviewSystemPrompt(preparation, preparation.analysis)
-      : buildGenericInterviewSystemPrompt()
+    this.systemPrompt = buildCurrentInterviewSystemPrompt(preparation)
     this.deepseek = new DeepSeekClient(config)
     this.history = []
     this.processor.reset()
@@ -83,6 +76,8 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
       partialTranscript: '',
       finalTranscript: '',
       answer: '',
+      answerSummary: '',
+      answerDetail: '',
       error: '',
       microphoneActive: false,
       generating: false,
@@ -164,6 +159,10 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
       preparationId: null,
       preparationName: '',
       partialTranscript: '',
+      finalTranscript: '',
+      answer: '',
+      answerSummary: '',
+      answerDetail: '',
       microphoneActive: false,
       generating: false,
       error: '',
@@ -216,6 +215,21 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
     this.pendingAudio.push(Buffer.from(bytes))
     if (this.pendingAudio.length > 100) this.pendingAudio.shift()
     this.flushPending()
+  }
+
+  answerScreenshot(dataUrl: string, displayName: string): void {
+    if (!this.deepseek || this.state.status === 'idle') throw new Error('请先开始一场面试')
+    const question = '屏幕截图中的题目或代码'
+    const text = [
+      `请分析来自“${displayName}”的屏幕截图。`,
+      '优先识别其中正在提问的面试题、代码、报错或图表,然后直接给出候选人可以使用的回答。',
+      '如果截图中没有明确题目,请概括最可能需要解释的核心内容,不要描述无关界面。',
+    ].join('\n')
+    this.patchState({ finalTranscript: '屏幕截图提问', partialTranscript: '' })
+    this.requestAnswer(question, [
+      { type: 'text', text },
+      { type: 'image_url', image_url: { url: dataUrl, detail: 'original' } },
+    ])
   }
 
   /** ASR 就绪后把积压的音频按顺序补发 */
@@ -324,51 +338,88 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
       return
     }
     this.patchState({ finalTranscript: normalized, partialTranscript: '' })
-    this.answerQueue = this.answerQueue
-      .then(() => this.answerQuestion(normalized))
+    this.requestAnswer(normalized)
+  }
+
+  private requestAnswer(question: string, userContent?: MessageContent): void {
+    const generation = ++this.answerGeneration
+    // 实时面试只保留最新问题。新问题到来时中止旧回答，避免答案与转写错位。
+    this.answerAbort?.abort()
+    void this.answerQuestion(question, generation, userContent ?? question)
       .catch((error: unknown) => {
         if ((error as Error)?.name !== 'AbortError') {
           const message = toUserMessage(error, '生成回答失败，请重试')
-          this.patchState({ status: 'error', error: message })
+          if (generation === this.answerGeneration) {
+            this.patchState({ status: 'error', error: message })
+          }
           log.error('生成面试回答失败', error)
         }
       })
   }
 
-  private async answerQuestion(question: string): Promise<void> {
+  private async answerQuestion(
+    question: string,
+    generation: number,
+    userContent: MessageContent,
+  ): Promise<void> {
     if (!this.deepseek) return
-    this.answerAbort?.abort()
-    this.answerAbort = new AbortController()
+    const controller = new AbortController()
+    this.answerAbort = controller
     // 生成属于模型侧状态，不写进语音服务状态
-    this.patchState({ generating: true, answer: '', error: '' })
+    this.patchState({
+      generating: true,
+      answer: '',
+      answerSummary: '',
+      answerDetail: '',
+      error: '',
+    })
     const messages: ChatMessage[] = [
       { role: 'system', content: this.systemPrompt },
       ...this.history.slice(-8),
-      { role: 'user', content: question },
+      {
+        role: 'user',
+        content: userContent,
+      },
     ]
     try {
       let answer = ''
       const completed = await this.deepseek.stream(
         messages,
         (delta) => {
+          if (generation !== this.answerGeneration) return
           answer += delta
-          this.patchState({ answer })
+          const parsed = parseInterviewAnswer(answer)
+          this.patchState({
+            answer,
+            answerSummary: parsed.summary,
+            answerDetail: parsed.detail,
+          })
         },
-        this.answerAbort.signal,
+        controller.signal,
       )
+      if (generation !== this.answerGeneration) return
       this.history.push(
         { role: 'user', content: question },
         { role: 'assistant', content: completed },
       )
       this.history = this.history.slice(-8)
-      this.patchState({ answer: completed })
+      const parsed = parseInterviewAnswer(completed)
+      this.patchState({
+        answer: completed,
+        answerSummary: parsed.summary,
+        answerDetail: parsed.detail,
+      })
     } finally {
-      // 中断或失败也必须复位，否则「生成中」会一直挂着
-      this.patchState({ generating: false })
+      // 旧请求的 finally 不能覆盖新请求的生成状态。
+      if (generation === this.answerGeneration) {
+        this.answerAbort = null
+        this.patchState({ generating: false })
+      }
     }
   }
 
   private async stopResources(): Promise<void> {
+    this.answerGeneration += 1
     this.answerAbort?.abort()
     this.answerAbort = null
     this.clearSafetyFallback()
@@ -380,7 +431,6 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
     this.asr = null
     this.deepseek = null
     this.processor.reset()
-    this.answerQueue = Promise.resolve()
   }
 
   /**

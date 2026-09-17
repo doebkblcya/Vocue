@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { GripHorizontal, Mic, Minus, Radio, RefreshCw, Square } from 'lucide-react'
+import { GripHorizontal, Mic, Minus, Radio, RefreshCw, ScanLine, Square } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { microphoneCapture } from '../audio/microphone'
@@ -10,6 +10,7 @@ export function FloatingWindow(): React.JSX.Element {
   const session = useSessionState()
   const [micError, setMicError] = useState('')
   const [localVerifying, setLocalVerifying] = useState(false)
+  const [capturingScreen, setCapturingScreen] = useState(false)
 
   const setRecording = useCallback(async (active: boolean): Promise<void> => {
     if (session.mode !== 'microphone') return
@@ -45,6 +46,19 @@ export function FloatingWindow(): React.JSX.Element {
       setMicError(getErrorMessage(error))
     } finally {
       setLocalVerifying(false)
+    }
+  }
+
+  const askScreenshot = async (): Promise<void> => {
+    if (!window.confirm('将截取鼠标所在的整块屏幕并发送到 DeepSeek。是否继续？')) return
+    try {
+      setMicError('')
+      setCapturingScreen(true)
+      await window.vocue.session.askScreenshot()
+    } catch (error) {
+      setMicError(getErrorMessage(error))
+    } finally {
+      setCapturingScreen(false)
     }
   }
 
@@ -132,13 +146,25 @@ export function FloatingWindow(): React.JSX.Element {
         </section>
 
         <section className="answer-box">
-          <span className="box-label">建议回答</span>
-          {session.answer ? (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{session.answer}</ReactMarkdown>
-          ) : (
-            <p className="muted">
-              {session.generating ? '正在生成回答…' : '识别到完整问题后，会在这里流式生成回答。'}
-            </p>
+          {session.answerSummary && (
+            <div className="answer-summary">
+              <span className="box-label">先说这几点</span>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{session.answerSummary}</ReactMarkdown>
+            </div>
+          )}
+          {session.answerDetail && (
+            <div className="answer-detail">
+              <span className="box-label">详细展开</span>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{session.answerDetail}</ReactMarkdown>
+            </div>
+          )}
+          {!session.answerSummary && !session.answerDetail && (
+            <>
+              <span className="box-label">建议回答</span>
+              <p className="muted">
+                {session.generating ? '正在生成回答…' : '识别到完整问题后，会在这里流式生成回答。'}
+              </p>
+            </>
           )}
         </section>
 
@@ -151,22 +177,35 @@ export function FloatingWindow(): React.JSX.Element {
           </div>
         )}
 
-        {session.mode === 'microphone' && session.status !== 'idle' && (
-          <button
-            className={`push-to-talk no-drag ${session.microphoneActive ? 'active' : ''}`}
-            onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); void setRecording(true) }}
-            onPointerUp={() => void setRecording(false)}
-            onPointerCancel={() => void setRecording(false)}
-          >
-            <Mic size={19} />
-            {session.microphoneActive
-              ? '松开结束录音'
-              : session.status === 'finalizing'
-                ? '正在识别刚才这句话…'
-                : session.generating
-                  ? '打断并提问'
-                  : '按住录音'}
-          </button>
+        {session.status !== 'idle' && (
+          <div className="floating-actions">
+            <button
+              className="screenshot-question no-drag"
+              disabled={capturingScreen}
+              title="截图会发送到 DeepSeek"
+              onClick={() => void askScreenshot()}
+            >
+              <ScanLine size={18} />
+              {capturingScreen ? '正在截取…' : '截屏提问'}
+            </button>
+            {session.mode === 'microphone' && (
+              <button
+                className={`push-to-talk no-drag ${session.microphoneActive ? 'active' : ''}`}
+                onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); void setRecording(true) }}
+                onPointerUp={() => void setRecording(false)}
+                onPointerCancel={() => void setRecording(false)}
+              >
+                <Mic size={19} />
+                {session.microphoneActive
+                  ? '松开结束录音'
+                  : session.status === 'finalizing'
+                    ? '正在识别刚才这句话…'
+                    : session.generating
+                      ? '打断并提问'
+                      : '按住录音'}
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

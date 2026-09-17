@@ -1,11 +1,13 @@
 export type AudioMode = 'system' | 'microphone'
 export type ThemeMode = 'system' | 'light' | 'dark'
+export type ThinkingEffort = 'disabled' | 'low' | 'high' | 'max'
 
 export interface AppSettings {
   deepseekApiKey: string
   doubaoApiKey: string
   hideFromScreenCapture: boolean
   theme: ThemeMode
+  thinkingEffort: ThinkingEffort
 }
 
 export interface PublicSettings {
@@ -13,6 +15,7 @@ export interface PublicSettings {
   hasDoubaoApiKey: boolean
   hideFromScreenCapture: boolean
   theme: ThemeMode
+  thinkingEffort: ThinkingEffort
 }
 
 export interface CapturePreview {
@@ -88,10 +91,29 @@ export interface InterviewSessionState {
   partialTranscript: string
   finalTranscript: string
   answer: string
+  answerSummary: string
+  answerDetail: string
   error: string
   microphoneActive: boolean
   /** AI 是否正在生成回答。属于模型侧，不属于语音服务状态。 */
   generating: boolean
+}
+
+export function createInitialInterviewSessionState(): InterviewSessionState {
+  return {
+    status: 'idle',
+    mode: null,
+    preparationId: null,
+    preparationName: '',
+    partialTranscript: '',
+    finalTranscript: '',
+    answer: '',
+    answerSummary: '',
+    answerDetail: '',
+    error: '',
+    microphoneActive: false,
+    generating: false,
+  }
 }
 
 export interface ExtractedDocument {
@@ -131,6 +153,7 @@ export interface VocueApi {
     stop: () => Promise<void>
     reconnect: () => Promise<void>
     verify: () => Promise<void>
+    askScreenshot: () => Promise<void>
     getState: () => Promise<InterviewSessionState>
     setMicrophoneActive: (active: boolean) => Promise<void>
     sendMicrophoneAudio: (bytes: Uint8Array) => void

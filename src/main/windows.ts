@@ -42,7 +42,7 @@ export function createMainWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
-      sandbox: false,
+      sandbox: true,
     },
   })
   mainWindow.setContentProtection(captureProtectionEnabled)
@@ -80,7 +80,7 @@ export function openFloatingWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
-      sandbox: false,
+      sandbox: true,
     },
   })
   floatingWindow.setAlwaysOnTop(true, 'floating')
@@ -91,6 +91,14 @@ export function openFloatingWindow(): BrowserWindow {
   })
   load(floatingWindow, '#/floating')
   return floatingWindow
+}
+
+export function showMainWindow(): BrowserWindow {
+  const window = createMainWindow()
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+  return window
 }
 
 export function closeFloatingWindow(): void {
@@ -136,6 +144,41 @@ export async function captureVisibilityPreview(): Promise<VisibilityTestResult> 
     return { unprotected, protected: protectedPreviews }
   } finally {
     setCaptureProtection(originalProtection)
+  }
+}
+
+export async function captureQuestionScreenshot(): Promise<{ dataUrl: string; displayName: string }> {
+  if (process.platform === 'darwin' && systemPreferences.getMediaAccessStatus('screen') === 'denied') {
+    throw new Error('Electron 没有屏幕录制权限，请先在系统设置中开启后重试')
+  }
+
+  const targetDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const visibleWindows = [mainWindow, floatingWindow].filter(
+    (window): window is BrowserWindow => Boolean(window && !window.isDestroyed() && window.isVisible()),
+  )
+
+  try {
+    // 即使用户关闭了 contentProtection，也不能让回答窗遮住待识别内容。
+    for (const window of visibleWindows) window.hide()
+    await waitForCaptureState()
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 1600, height: 1000 },
+      fetchWindowIcons: false,
+    })
+    const source = sources.find((item) => item.display_id === String(targetDisplay.id)) ?? sources[0]
+    if (!source || source.thumbnail.isEmpty()) {
+      throw new Error('没有获取到屏幕画面，请检查屏幕录制权限')
+    }
+    return {
+      dataUrl: source.thumbnail.toDataURL(),
+      displayName: source.name,
+    }
+  } finally {
+    // 使用 showInactive，避免截图结束后抢走会议软件的键盘焦点。
+    for (const window of visibleWindows) {
+      if (!window.isDestroyed()) window.showInactive()
+    }
   }
 }
 

@@ -139,6 +139,11 @@ export class LocalDatabase {
     const existing = input.id ? this.getPreparation(input.id) : null
     const id = existing?.id ?? randomUUID()
     const now = new Date().toISOString()
+    const sourceChanged = !existing || preparationSourceChanged(existing, input)
+    const analysisJson = sourceChanged || !existing.analysis
+      ? null
+      : JSON.stringify(existing.analysis)
+    const systemPrompt = sourceChanged ? '' : existing.systemPrompt
 
     this.db.exec('BEGIN IMMEDIATE')
     try {
@@ -146,16 +151,25 @@ export class LocalDatabase {
         .prepare(`
           INSERT INTO preparations(
             id, name, job_description, resume, analysis_json, system_prompt, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, NULL, '', ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             job_description = excluded.job_description,
             resume = excluded.resume,
-            analysis_json = NULL,
-            system_prompt = '',
+            analysis_json = excluded.analysis_json,
+            system_prompt = excluded.system_prompt,
             updated_at = excluded.updated_at
         `)
-        .run(id, input.name.trim(), input.jobDescription, input.resume, existing?.createdAt ?? now, now)
+        .run(
+          id,
+          input.name.trim(),
+          input.jobDescription,
+          input.resume,
+          analysisJson,
+          systemPrompt,
+          existing?.createdAt ?? now,
+          now,
+        )
 
       this.db.prepare('DELETE FROM preparation_documents WHERE preparation_id = ?').run(id)
       const insert = this.db.prepare(`
@@ -221,4 +235,23 @@ export class LocalDatabase {
       })),
     }
   }
+}
+
+function preparationSourceChanged(
+  existing: Preparation,
+  input: {
+    jobDescription: string
+    resume: string
+    documents: ExtractedDocument[]
+  },
+): boolean {
+  if (existing.jobDescription !== input.jobDescription || existing.resume !== input.resume) return true
+  if (existing.documents.length !== input.documents.length) return true
+  return existing.documents.some((document, index) => {
+    const next = input.documents[index]
+    return !next ||
+      document.filename !== next.filename ||
+      document.kind !== next.kind ||
+      document.content !== next.content
+  })
 }

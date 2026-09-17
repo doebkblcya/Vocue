@@ -4,8 +4,17 @@ class MicrophoneCapture {
   private sending = false
   private ready = false
   private samples: number[] = []
+  /** 串行化按下/松开，避免首次授权期间重复初始化或松开事件越过按下事件。 */
+  private transition: Promise<void> = Promise.resolve()
 
-  async setSending(active: boolean): Promise<void> {
+  setSending(active: boolean): Promise<void> {
+    const operation = this.transition.then(() => this.applySending(active))
+    // 一次失败不能让后续所有按键操作都卡在 rejected promise 上。
+    this.transition = operation.catch(() => undefined)
+    return operation
+  }
+
+  private async applySending(active: boolean): Promise<void> {
     if (active) {
       if (this.sending) return
       if (!this.context) await this.initialize()
@@ -36,13 +45,24 @@ class MicrophoneCapture {
   }
 
   stop(): void {
-    this.sending = false
-    this.ready = false
-    this.stream?.getTracks().forEach((track) => track.stop())
-    void this.context?.close()
-    this.stream = null
-    this.context = null
-    this.samples = []
+    this.transition = this.transition
+      .catch(() => undefined)
+      .then(async () => {
+        if (this.sending) {
+          try {
+            await this.applySending(false)
+          } catch {
+            // 窗口正在卸载时只需确保本地资源释放
+          }
+        }
+        this.sending = false
+        this.ready = false
+        this.stream?.getTracks().forEach((track) => track.stop())
+        await this.context?.close()
+        this.stream = null
+        this.context = null
+        this.samples = []
+      })
   }
 
   private async initialize(): Promise<void> {

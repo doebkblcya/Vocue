@@ -10,6 +10,7 @@ import { LocalDatabase } from '../storage/database'
 import { SettingsStore } from '../storage/settings'
 import {
   captureVisibilityPreview,
+  captureQuestionScreenshot,
   broadcast,
   closeFloatingWindow,
   minimizeFloatingWindow,
@@ -19,10 +20,16 @@ import {
 } from '../windows'
 
 function trustedSender(sender: WebContents): void {
-  const url = sender.getURL()
-  if (!url.startsWith('file://') && !url.startsWith('http://localhost:') && !url.startsWith('http://127.0.0.1:')) {
-    throw new Error('拒绝未知页面的 IPC 请求')
+  try {
+    const senderUrl = new URL(sender.getURL())
+    if (senderUrl.protocol === 'file:') return
+
+    const rendererUrl = process.env.ELECTRON_RENDERER_URL
+    if (rendererUrl && senderUrl.origin === new URL(rendererUrl).origin) return
+  } catch {
+    // 统一落到下面的拒绝分支
   }
+  throw new Error('拒绝未知页面的 IPC 请求')
 }
 
 export function registerIpc(
@@ -123,7 +130,9 @@ export function registerIpc(
     if (preparationId) {
       const preparation = database.getPreparation(preparationId)
       if (!preparation) throw new Error('面试档案不存在')
-      if (!preparation.analysis || !preparation.systemPrompt) {
+      // systemPrompt 是兼容旧数据库的快照字段；运行时会用最新模板现算。
+      // 因此只有缺少预分析时才需要发起昂贵的模型调用。
+      if (!preparation.analysis) {
         await analyzePreparation(preparationId)
       }
     }
@@ -138,6 +147,11 @@ export function registerIpc(
   handle('session:stop', () => session.stop())
   handle('session:reconnect', () => session.reconnect())
   handle('session:verify', () => session.verifyService())
+  handle('session:ask-screenshot', async () => {
+    if (session.getState().status === 'idle') throw new Error('请先开始一场面试')
+    const screenshot = await captureQuestionScreenshot()
+    session.answerScreenshot(screenshot.dataUrl, screenshot.displayName)
+  })
   handle('session:get-state', () => session.getState())
   handle('session:set-microphone-active', (_sender, active: boolean) =>
     session.setMicrophoneActive(active),
@@ -151,5 +165,10 @@ export function registerIpc(
   handle('window:open-floating', () => openFloatingWindow())
   handle('window:close-floating', () => closeFloatingWindow())
   handle('window:minimize-floating', () => minimizeFloatingWindow())
-  handle('window:capture-visibility-preview', () => captureVisibilityPreview())
+  handle('window:capture-visibility-preview', () => {
+    if (session.getState().status !== 'idle') {
+      throw new Error('面试进行中不能执行录屏可见性自检，请先结束面试')
+    }
+    return captureVisibilityPreview()
+  })
 }

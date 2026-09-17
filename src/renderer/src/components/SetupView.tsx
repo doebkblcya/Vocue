@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   AlertCircle,
+  BrainCircuit,
   CheckCircle2,
   EyeOff,
   KeyRound,
@@ -17,6 +18,7 @@ import type {
   AppSettings,
   PublicSettings,
   ThemeMode,
+  ThinkingEffort,
   VisibilityTestResult,
 } from '../../../shared/types'
 import { getErrorMessage } from '../error-message'
@@ -52,6 +54,7 @@ export function SetupView({ onComplete, allowCancel = false }: Props): React.JSX
         ...EMPTY,
         hideFromScreenCapture: settings.hideFromScreenCapture,
         theme: settings.theme,
+        thinkingEffort: settings.thinkingEffort,
       })
     })
   }, [])
@@ -158,7 +161,8 @@ export function SetupView({ onComplete, allowCancel = false }: Props): React.JSX
                 onChange={(event) => update('deepseekApiKey', event.target.value)}
               />
               <div className="config-summary">
-                <span>官方接口</span><strong>deepseek-flash</strong><span>V4.1 Flash · 非思考模式</span>
+                <span>官方接口</span><strong>deepseek-flash</strong>
+                <span>{form.thinkingEffort === 'disabled' ? '非思考模式' : `思考强度 · ${form.thinkingEffort}`}</span>
               </div>
               <button className="button secondary small" disabled={busy} onClick={() => void test('deepseek')}>测试 DeepSeek</button>
             </div>
@@ -180,6 +184,35 @@ export function SetupView({ onComplete, allowCancel = false }: Props): React.JSX
           </div>
 
           <div className="preference-grid">
+            <section className="theme-setting thinking-setting">
+              <span className="privacy-icon"><BrainCircuit size={18} /></span>
+              <span className="privacy-copy">
+                <strong>回答思考强度</strong>
+                <small>实时面试建议关闭或使用低强度；高强度和最大强度会明显增加首字延迟。</small>
+              </span>
+              <div className="theme-options" aria-label="回答思考强度">
+                {([
+                  ['disabled', '关闭'],
+                  ['low', '低'],
+                  ['high', '高'],
+                  ['max', '最大'],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`theme-option ${form.thinkingEffort === value ? 'selected' : ''}`}
+                    aria-pressed={form.thinkingEffort === value}
+                    onClick={() => setForm((current) => ({
+                      ...current,
+                      thinkingEffort: value as ThinkingEffort,
+                    }))}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </section>
+
             <section className="theme-setting">
               <span className="privacy-icon"><Sun size={18} /></span>
               <span className="privacy-copy">

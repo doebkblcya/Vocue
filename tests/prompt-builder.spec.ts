@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildCurrentInterviewSystemPrompt,
   buildGenericInterviewSystemPrompt,
   buildInterviewSystemPrompt,
   parseAnalysis,
+  parseInterviewAnswer,
 } from '../src/main/ai/prompt-builder'
 import type { Preparation } from '../src/shared/types'
 
@@ -38,5 +40,34 @@ describe('prompt builder', () => {
     const prompt = buildGenericInterviewSystemPrompt()
     expect(prompt).toContain('不要虚构项目')
     expect(prompt).toContain('中文实时面试助手')
+  })
+
+  it('开始面试时忽略数据库里的旧提示词快照', () => {
+    const preparation: Preparation = {
+      id: '1',
+      name: '更新后的档案',
+      jobDescription: '最新 JD 内容',
+      resume: '最新简历内容',
+      analysis: null,
+      systemPrompt: '数据库中的旧提示词',
+      createdAt: '',
+      updatedAt: '',
+      documents: [],
+    }
+
+    const prompt = buildCurrentInterviewSystemPrompt(preparation)
+
+    expect(prompt).toContain('最新 JD 内容')
+    expect(prompt).toContain('最新简历内容')
+    expect(prompt).not.toContain('数据库中的旧提示词')
+  })
+
+  it('流式拆分要点与详细回答', () => {
+    expect(parseInterviewAnswer('<quick>\n- 先讲结论\n</quick>\n<detail>\n详细内容'))
+      .toEqual({ summary: '- 先讲结论', detail: '详细内容' })
+    expect(parseInterviewAnswer('<quick>\n- 还在流式输出<'))
+      .toEqual({ summary: '- 还在流式输出', detail: '' })
+    expect(parseInterviewAnswer('<qui'))
+      .toEqual({ summary: '', detail: '' })
   })
 })

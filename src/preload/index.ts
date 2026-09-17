@@ -40,6 +40,7 @@ const api: VocueApi = {
     stop: () => ipcRenderer.invoke('session:stop'),
     reconnect: () => ipcRenderer.invoke('session:reconnect'),
     verify: () => ipcRenderer.invoke('session:verify'),
+    askScreenshot: () => ipcRenderer.invoke('session:ask-screenshot'),
     getState: () => ipcRenderer.invoke('session:get-state'),
     setMicrophoneActive: (active: boolean) =>
       ipcRenderer.invoke('session:set-microphone-active', active),

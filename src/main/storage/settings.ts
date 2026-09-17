@@ -1,13 +1,19 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { safeStorage } from 'electron'
-import type { AppSettings, PublicSettings, ThemeMode } from '../../shared/types'
+import type {
+  AppSettings,
+  PublicSettings,
+  ThemeMode,
+  ThinkingEffort,
+} from '../../shared/types'
 import { LocalDatabase } from './database'
 
 const DEFAULTS: AppSettings = {
   deepseekApiKey: '',
   doubaoApiKey: '',
-  hideFromScreenCapture: false,
+  hideFromScreenCapture: true,
   theme: 'system',
+  thinkingEffort: 'disabled',
 }
 
 const SECRET_KEYS = ['deepseekApiKey', 'doubaoApiKey'] as const
@@ -23,11 +29,18 @@ export class SettingsStore {
   get(): AppSettings {
     const secrets = this.readSecrets()
     const storedTheme = this.database.getSetting('theme')
+    const storedCaptureProtection = this.database.getSetting('hideFromScreenCapture')
+    const storedThinkingEffort = this.database.getSetting('thinkingEffort')
     return {
       ...DEFAULTS,
       ...secrets,
-      hideFromScreenCapture: this.database.getSetting('hideFromScreenCapture') === 'true',
+      hideFromScreenCapture: storedCaptureProtection === null
+        ? DEFAULTS.hideFromScreenCapture
+        : storedCaptureProtection === 'true',
       theme: isThemeMode(storedTheme) ? storedTheme : 'system',
+      thinkingEffort: isThinkingEffort(storedThinkingEffort)
+        ? storedThinkingEffort
+        : DEFAULTS.thinkingEffort,
     }
   }
 
@@ -38,6 +51,7 @@ export class SettingsStore {
       hasDoubaoApiKey: Boolean(settings.doubaoApiKey),
       hideFromScreenCapture: settings.hideFromScreenCapture,
       theme: settings.theme,
+      thinkingEffort: settings.thinkingEffort,
     }
   }
 
@@ -55,6 +69,9 @@ export class SettingsStore {
     }
     if (input.theme !== undefined && isThemeMode(input.theme)) {
       this.database.setSetting('theme', input.theme)
+    }
+    if (input.thinkingEffort !== undefined && isThinkingEffort(input.thinkingEffort)) {
+      this.database.setSetting('thinkingEffort', input.thinkingEffort)
     }
     if (secretsChanged) this.writeSecrets(secrets)
     return this.getPublic()
@@ -91,4 +108,8 @@ export class SettingsStore {
 
 function isThemeMode(value: unknown): value is ThemeMode {
   return value === 'system' || value === 'light' || value === 'dark'
+}
+
+function isThinkingEffort(value: unknown): value is ThinkingEffort {
+  return value === 'disabled' || value === 'low' || value === 'high' || value === 'max'
 }

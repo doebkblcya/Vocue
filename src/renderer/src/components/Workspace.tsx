@@ -1,9 +1,10 @@
-import { FileText, FolderPlus, Play, Settings, Sparkles, Square } from 'lucide-react'
+import { FileText, FolderPlus, Home, Play, Settings, Sparkles, Square } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { AudioMode, PreparationSummary } from '../../../shared/types'
+import type { AudioMode, InterviewRecordSummary, PreparationSummary } from '../../../shared/types'
 import { useSessionState } from '../hooks'
 import { ArchiveEditorDialog } from './ArchiveEditorDialog'
 import { StartInterviewDialog } from './StartInterviewDialog'
+import { InterviewRecordView } from './InterviewRecordView'
 
 interface Props {
   openSettings: () => void
@@ -11,22 +12,35 @@ interface Props {
 
 export function Workspace({ openSettings }: Props): React.JSX.Element {
   const [preparations, setPreparations] = useState<PreparationSummary[]>([])
+  const [records, setRecords] = useState<InterviewRecordSummary[]>([])
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null)
   const [startOpen, setStartOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null | undefined>(undefined)
   const session = useSessionState()
 
   const refresh = async (): Promise<void> => {
-    setPreparations(await window.vocue.preparations.list())
+    const [nextPreparations, nextRecords] = await Promise.all([
+      window.vocue.preparations.list(),
+      window.vocue.interviews.list(),
+    ])
+    setPreparations(nextPreparations)
+    setRecords(nextRecords)
   }
 
   useEffect(() => {
     void refresh()
   }, [])
 
+  useEffect(() => {
+    if (session.status !== 'idle' && !session.recordId) return
+    void window.vocue.interviews.list().then(setRecords)
+  }, [session.status, session.recordId])
+
   const start = async (preparationId: string | null, mode: AudioMode): Promise<void> => {
     try {
       await window.vocue.session.start(preparationId, mode)
       setStartOpen(false)
+      setSelectedRecordId(null)
       await refresh()
     } catch (error) {
       throw error
@@ -36,23 +50,58 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
   const stop = async (): Promise<void> => {
     await window.vocue.session.stop()
     await window.vocue.window.closeFloating()
+    await refresh()
   }
 
   const isActive = session.status !== 'idle'
 
   return (
-    <main className="home-shell">
-      <header className="home-header drag-region">
-        <div className="home-brand">
+    <main className="home-shell workspace-shell">
+      <aside className="interview-sidebar">
+        <div className="sidebar-brand drag-region">
           <div className="brand-mark small"><Sparkles size={17} /></div>
           <strong>Vocue</strong>
+        </div>
+        <button className="sidebar-home" onClick={() => setSelectedRecordId(null)}>
+          <Home size={16} />首页
+        </button>
+        <button className="sidebar-start" disabled={isActive} onClick={() => setStartOpen(true)}>
+          <Play size={15} fill="currentColor" />开始面试
+        </button>
+        <div className="sidebar-section-title"><span>面试记录</span><small>{records.length}</small></div>
+        <nav className="record-list">
+          {records.map((record) => (
+            <button
+              key={record.id}
+              className={selectedRecordId === record.id ? 'selected' : ''}
+              onClick={() => setSelectedRecordId(record.id)}
+            >
+              <span className={`record-dot record-dot-${record.status}`} />
+              <span><strong>{record.preparationName}</strong><small>{formatRecordDate(record.startedAt)} · {record.utteranceCount} 段</small></span>
+            </button>
+          ))}
+          {!records.length && <p className="sidebar-empty">完成第一场系统音频面试后，记录会出现在这里。</p>}
+        </nav>
+        <button className="sidebar-settings" onClick={openSettings}><Settings size={16} />设置</button>
+      </aside>
+
+      <section className="workspace-main">
+      <header className="home-header drag-region">
+        <div className="home-brand">
+          <strong>{selectedRecordId ? '面试记录' : '面试工作台'}</strong>
         </div>
         <button className="home-settings no-drag" title="设置" onClick={openSettings}>
           <Settings size={18} />
         </button>
       </header>
 
-      <div className="home-content">
+      {selectedRecordId ? (
+        <InterviewRecordView
+          recordId={selectedRecordId}
+          onBack={() => setSelectedRecordId(null)}
+          onChanged={refresh}
+        />
+      ) : <div className="home-content">
         <section className="home-hero">
           {isActive ? (
             <>
@@ -112,7 +161,8 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
             </button>
           )}
         </section>
-      </div>
+      </div>}
+      </section>
 
       {startOpen && (
         <StartInterviewDialog
@@ -134,4 +184,8 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(value))
+}
+
+function formatRecordDate(value: string): string {
+  return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
 }

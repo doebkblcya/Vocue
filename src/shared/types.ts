@@ -97,6 +97,9 @@ export interface InterviewSessionState {
   microphoneActive: boolean
   /** AI 是否正在生成回答。属于模型侧，不属于语音服务状态。 */
   generating: boolean
+  /** 系统音频模式会同时转写麦克风，并把双方终稿保存为面试记录。 */
+  recordingTranscript: boolean
+  recordId: string | null
 }
 
 export function createInitialInterviewSessionState(): InterviewSessionState {
@@ -113,7 +116,47 @@ export function createInitialInterviewSessionState(): InterviewSessionState {
     error: '',
     microphoneActive: false,
     generating: false,
+    recordingTranscript: false,
+    recordId: null,
   }
+}
+
+export type InterviewRole = 'interviewer' | 'candidate'
+export type InterviewRecordStatus = 'recording' | 'ready' | 'reviewing' | 'completed' | 'incomplete'
+
+export interface InterviewUtterance {
+  id: string
+  sessionId: string
+  sequence: number
+  role: InterviewRole
+  text: string
+  /** 外放回声清理后的展示文本；null 表示没有修改。原文始终保留在 text。 */
+  cleanedText: string | null
+  excludedAsEcho: boolean
+  startMs: number
+  endMs: number
+  createdAt: string
+}
+
+export interface InterviewRecordSummary {
+  id: string
+  preparationId: string | null
+  preparationName: string
+  status: InterviewRecordStatus
+  startedAt: string
+  endedAt: string | null
+  durationMs: number
+  utteranceCount: number
+  hasReview: boolean
+  echoCleanupApplied: boolean
+  echoRemovedCount: number
+  echoChangedCount: number
+}
+
+export interface InterviewRecord extends InterviewRecordSummary {
+  reviewMarkdown: string
+  reviewError: string
+  utterances: InterviewUtterance[]
 }
 
 export interface ExtractedDocument {
@@ -156,8 +199,16 @@ export interface VocueApi {
     askScreenshot: () => Promise<void>
     getState: () => Promise<InterviewSessionState>
     setMicrophoneActive: (active: boolean) => Promise<void>
+    reportRecordingProblem: (message: string) => Promise<void>
     sendMicrophoneAudio: (bytes: Uint8Array) => void
     onState: (callback: (state: InterviewSessionState) => void) => () => void
+  }
+  interviews: {
+    list: () => Promise<InterviewRecordSummary[]>
+    get: (id: string) => Promise<InterviewRecord | null>
+    cleanupEcho: (id: string) => Promise<InterviewRecord>
+    undoEchoCleanup: (id: string) => Promise<InterviewRecord>
+    generateReview: (id: string) => Promise<InterviewRecord>
   }
   window: {
     openFloating: () => Promise<void>

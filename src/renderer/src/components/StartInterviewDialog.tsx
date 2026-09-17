@@ -72,7 +72,7 @@ export function StartInterviewDialog({
           <div className="mode-picker">
             <button className={mode === 'system' ? 'selected' : ''} onClick={() => setMode('system')}>
               <Headphones size={22} />
-              <span><strong>系统音频</strong><small>持续监听线上会议声音</small></span>
+              <span><strong>系统音频</strong><small>实时辅助，并保存双方完整文字记录</small></span>
             </button>
             <button
               className={mode === 'microphone' ? 'selected' : ''}
@@ -82,6 +82,12 @@ export function StartInterviewDialog({
               <span><strong>麦克风录制</strong><small>按住回答窗中的按钮录音</small></span>
             </button>
           </div>
+
+          {mode === 'system' && (
+            <div className="notice notice-info">
+              将同时转写会议声音和你的麦克风，只在本地保存文字与时间点，不保存原始录音。
+            </div>
+          )}
 
           {error && <div className="notice notice-error" role="alert">{error}</div>}
         </div>

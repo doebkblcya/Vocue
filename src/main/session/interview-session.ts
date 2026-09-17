@@ -10,11 +10,12 @@ import {
   parseInterviewAnswer,
 } from '../ai/prompt-builder'
 import {
+  type AsrUtteranceTiming,
   DoubaoAsr,
   PUSH_TO_TALK_PARAMS,
   SYSTEM_AUDIO_PARAMS,
 } from '../asr/doubao-asr'
-import { PcmAudioProcessor } from '../audio/audio-processor'
+import { SystemAudioProcessor } from '../audio/system-audio-processor'
 import { SystemAudioCapture } from '../audio/system-audio-capture'
 import { log } from '../log'
 import { LocalDatabase } from '../storage/database'
@@ -31,9 +32,11 @@ const SEGMENT_SAFETY_TIMEOUT_MS = 8000
 export class InterviewSession extends EventEmitter<{ state: [InterviewSessionState] }> {
   private state: InterviewSessionState = createInitialInterviewSessionState()
   private asr: DoubaoAsr | null = null
+  /** 系统音频模式下，第二条相同的流式 ASR 专门记录候选人的麦克风。 */
+  private candidateAsr: DoubaoAsr | null = null
   private deepseek: DeepSeekClient | null = null
   private systemAudio: SystemAudioCapture | null = null
-  private processor = new PcmAudioProcessor()
+  private systemAudioProcessor = new SystemAudioProcessor()
   private systemPrompt = ''
   /** 临时沿用 Bready 风格：最多保留 4 轮问题与 AI 建议回答。 */
   private history: ChatMessage[] = []
@@ -45,6 +48,14 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
   /** ASR 尚未就绪时先把音频存在这里，连上后顺序补发 */
   private readonly pendingAudio: Buffer[] = []
   private safetyTimer: NodeJS.Timeout | null = null
+  private readonly candidatePendingAudio: Buffer[] = []
+  private activeRecordId: string | null = null
+  private recordStartedAt = 0
+  private recordIncomplete = false
+  private stopping = false
+  private interviewerFinishResolve: (() => void) | null = null
+  private candidateFinishResolve: (() => void) | null = null
+  private readonly lastRecorded = new Map<'interviewer' | 'candidate', { text: string; endMs: number }>()
 
   constructor(
     private readonly database: LocalDatabase,
@@ -67,7 +78,7 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
     this.systemPrompt = buildCurrentInterviewSystemPrompt(preparation)
     this.deepseek = new DeepSeekClient(config)
     this.history = []
-    this.processor.reset()
+    this.systemAudioProcessor.reset()
     this.patchState({
       status: 'connecting',
       mode,
@@ -81,17 +92,32 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
       error: '',
       microphoneActive: false,
       generating: false,
+      recordingTranscript: false,
+      recordId: null,
     })
 
     if (mode === 'system') {
       // 系统音频必须连上才能开始，连不上就是开始失败
       try {
         this.asr = this.createAsr(config)
-        await this.asr.connect()
+        this.candidateAsr = this.createCandidateAsr(config)
+        await Promise.all([this.asr.connect(), this.candidateAsr.connect()])
         await this.startSystemAudio()
-        this.patchState({ status: 'listening' })
+        const record = this.database.createInterviewSession({
+          preparationId,
+          preparationName: preparation?.name ?? '通用面试',
+        })
+        this.activeRecordId = record.id
+        this.recordStartedAt = Date.now()
+        this.recordIncomplete = false
+        this.lastRecorded.clear()
+        this.patchState({
+          status: 'listening',
+          recordingTranscript: true,
+          recordId: record.id,
+        })
       } catch (error) {
-        await this.stopResources()
+        await this.stopResources(false)
         this.patchState({
           status: 'error',
           error: toUserMessage(error, '开始面试失败，请重试'),
@@ -152,7 +178,19 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
   }
 
   async stop(): Promise<void> {
-    await this.stopResources()
+    this.stopping = true
+    await this.stopResources(true)
+    if (this.activeRecordId) {
+      this.database.finishInterviewSession(
+        this.activeRecordId,
+        this.recordIncomplete ? 'incomplete' : 'ready',
+      )
+    }
+    this.activeRecordId = null
+    this.recordStartedAt = 0
+    this.recordIncomplete = false
+    this.lastRecorded.clear()
+    this.stopping = false
     this.patchState({
       status: 'idle',
       mode: null,
@@ -165,6 +203,8 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
       answerDetail: '',
       microphoneActive: false,
       generating: false,
+      recordingTranscript: false,
+      recordId: null,
       error: '',
     })
   }
@@ -211,10 +251,31 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
   }
 
   sendMicrophoneAudio(bytes: Uint8Array): void {
+    if (this.state.mode === 'system' && this.activeRecordId) {
+      const packet = Buffer.from(bytes)
+      if (!this.candidateAsr?.isOpen()) {
+        this.candidatePendingAudio.push(packet)
+        // 16kHz / 16-bit / mono，每包约 100ms；最多保留最近 60 秒。
+        if (this.candidatePendingAudio.length > 600) {
+          this.candidatePendingAudio.shift()
+          this.recordIncomplete = true
+        }
+        return
+      }
+      this.flushCandidatePending()
+      this.candidateAsr.sendAudio(packet)
+      return
+    }
     if (this.state.mode !== 'microphone' || !this.segmentActive) return
     this.pendingAudio.push(Buffer.from(bytes))
     if (this.pendingAudio.length > 100) this.pendingAudio.shift()
     this.flushPending()
+  }
+
+  reportRecordingProblem(message: string): void {
+    if (!this.activeRecordId || this.state.mode !== 'system') return
+    this.recordIncomplete = true
+    this.patchState({ error: toUserMessage(message, '麦克风转写不可用，本次记录可能不完整') })
   }
 
   answerScreenshot(dataUrl: string, displayName: string): void {
@@ -265,11 +326,15 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
       onPartial: (text) => {
         if (this.asr === asr) this.patchState({ partialTranscript: text })
       },
-      onFinal: (text) => {
-        if (this.asr === asr) this.handleFinalTranscript(text)
+      onFinal: (text, timing) => {
+        if (this.asr === asr) this.handleFinalTranscript(text, timing)
       },
-      onSegmentEnd: (text) => {
-        if (this.asr === asr) this.handleFinalTranscript(text)
+      onSegmentEnd: (text, timing) => {
+        if (this.asr === asr) {
+          this.handleFinalTranscript(text, timing)
+          this.interviewerFinishResolve?.()
+          this.interviewerFinishResolve = null
+        }
       },
       onState: (state, message, code) => {
         // 已被刷新或替换的连接即使收到迟到错误，也不能污染当前会话状态。
@@ -282,6 +347,7 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
           return
         }
         if (state === 'reconnecting') {
+          if (this.state.mode === 'system') this.recordIncomplete = true
           if (this.segmentActive) {
             // 录音中掉线：立刻退出录音态，避免「显示在录音、实际没在识别」
             this.segmentActive = false
@@ -299,7 +365,7 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
         }
         if (state === 'connected') {
           if (this.state.status === 'reconnecting' || this.state.status === 'verifying') {
-            this.patchState({ status: this.segmentActive ? 'recording' : 'ready', error: '' })
+            this.patchState({ status: this.segmentActive ? 'recording' : this.idleStatus(), error: '' })
           }
           return
         }
@@ -321,22 +387,60 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
     return asr
   }
 
+  private createCandidateAsr(config: ReturnType<SettingsStore['get']>): DoubaoAsr {
+    let asr!: DoubaoAsr
+    asr = new DoubaoAsr(config, {
+      onPartial: () => undefined,
+      onFinal: (text, timing) => {
+        if (this.candidateAsr === asr) this.recordUtterance('candidate', text, timing)
+      },
+      onSegmentEnd: (text, timing) => {
+        if (this.candidateAsr !== asr) return
+        this.recordUtterance('candidate', text, timing)
+        this.candidateFinishResolve?.()
+        this.candidateFinishResolve = null
+      },
+      onState: (state, message) => {
+        if (this.candidateAsr !== asr) return
+        if (state === 'connected') {
+          this.flushCandidatePending()
+          return
+        }
+        if (state === 'error') {
+          this.recordIncomplete = true
+          this.patchState({ error: toUserMessage(message, '候选人语音转写出现问题') })
+        }
+      },
+    }, {
+      ...SYSTEM_AUDIO_PARAMS,
+      enableDdc: false,
+    })
+    return asr
+  }
+
+  private flushCandidatePending(): void {
+    if (!this.candidatePendingAudio.length || !this.candidateAsr?.isOpen()) return
+    const pending = this.candidatePendingAudio.splice(0)
+    for (const packet of pending) this.candidateAsr.sendAudio(packet)
+  }
+
   private async startSystemAudio(): Promise<void> {
     const capture = new SystemAudioCapture()
     this.systemAudio = capture
     capture.on('data', (chunk) => {
-      for (const packet of this.processor.pushStereo24k(chunk)) this.asr?.sendAudio(packet)
+      for (const packet of this.systemAudioProcessor.pushStereo24k(chunk)) this.asr?.sendAudio(packet)
     })
     capture.on('reconnecting', (attempt) => {
       this.patchState({ status: 'reconnecting', error: `系统音频正在第 ${attempt} 次重连` })
     })
-    capture.on('error', (error) =>
-      this.patchState({ status: 'error', error: toUserMessage(error, '系统音频捕获失败，请重试') }),
-    )
+    capture.on('error', (error) => {
+      this.recordIncomplete = true
+      this.patchState({ status: 'error', error: toUserMessage(error, '系统音频捕获失败，请重试') })
+    })
     await capture.start()
   }
 
-  private handleFinalTranscript(text: string): void {
+  private handleFinalTranscript(text: string, timing?: AsrUtteranceTiming): void {
     // 服务端最后一包或本地安全网结算：先收掉兜底计时，避免重复结算
     this.clearSafetyFallback()
     // 麦克风模式：这一段结束了，连接不需要留着（空闲时服务端也会掐）。
@@ -347,8 +451,27 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
       if (this.state.status === 'finalizing') this.patchState({ status: this.idleStatus(), partialTranscript: '' })
       return
     }
+    if (this.state.mode === 'system') this.recordUtterance('interviewer', normalized, timing)
+    if (this.stopping) return
     this.patchState({ finalTranscript: normalized, partialTranscript: '' })
     this.requestAnswer(normalized)
+  }
+
+  private recordUtterance(
+    role: 'interviewer' | 'candidate',
+    text: string,
+    timing?: AsrUtteranceTiming,
+  ): void {
+    const sessionId = this.activeRecordId
+    const normalized = text.trim()
+    if (!sessionId || !normalized) return
+    const fallbackEnd = Math.max(0, Date.now() - this.recordStartedAt)
+    const endMs = timing?.endMs ?? fallbackEnd
+    const startMs = timing?.startMs ?? Math.max(0, endMs - Math.max(600, normalized.length * 120))
+    const previous = this.lastRecorded.get(role)
+    if (previous?.text === normalized && Math.abs(previous.endMs - endMs) < 5000) return
+    this.database.appendInterviewUtterance({ sessionId, role, text: normalized, startMs, endMs })
+    this.lastRecorded.set(role, { text: normalized, endMs })
   }
 
   private requestAnswer(question: string, userContent?: MessageContent): void {
@@ -428,7 +551,7 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
     }
   }
 
-  private async stopResources(): Promise<void> {
+  private async stopResources(finalizeTranscript: boolean): Promise<void> {
     this.answerGeneration += 1
     this.answerAbort?.abort()
     this.answerAbort = null
@@ -437,10 +560,43 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
     this.pendingAudio.length = 0
     this.systemAudio?.stop()
     this.systemAudio = null
+    if (finalizeTranscript && this.state.mode === 'system') {
+      this.flushCandidatePending()
+      const finished = await Promise.all([
+        this.finishAsr(this.asr, 'interviewer'),
+        this.finishAsr(this.candidateAsr, 'candidate'),
+      ])
+      if (finished.some((value) => !value)) this.recordIncomplete = true
+    }
     this.asr?.disconnect()
     this.asr = null
+    this.candidateAsr?.disconnect()
+    this.candidateAsr = null
+    this.candidatePendingAudio.length = 0
+    this.interviewerFinishResolve = null
+    this.candidateFinishResolve = null
     this.deepseek = null
-    this.processor.reset()
+    this.systemAudioProcessor.reset()
+  }
+
+  private finishAsr(
+    asr: DoubaoAsr | null,
+    role: 'interviewer' | 'candidate',
+  ): Promise<boolean> {
+    if (!asr?.isOpen()) return Promise.resolve(false)
+    return new Promise<boolean>((resolve) => {
+      let done = false
+      const finish = (completed = true): void => {
+        if (done) return
+        done = true
+        clearTimeout(timeout)
+        resolve(completed)
+      }
+      const timeout = setTimeout(() => finish(false), 3000)
+      if (role === 'interviewer') this.interviewerFinishResolve = finish
+      else this.candidateFinishResolve = finish
+      asr.finishSegment()
+    })
   }
 
   /**

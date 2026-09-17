@@ -24,8 +24,16 @@ interface ChatCompletionResponse {
 export class DeepSeekClient {
   constructor(private readonly settings: AppSettings) {}
 
-  async complete(messages: ChatMessage[], options?: { json?: boolean }): Promise<string> {
-    const response = await this.request({ messages, stream: false, json: options?.json })
+  async complete(
+    messages: ChatMessage[],
+    options?: { json?: boolean; thinkingEffort?: AppSettings['thinkingEffort'] },
+  ): Promise<string> {
+    const response = await this.request({
+      messages,
+      stream: false,
+      json: options?.json,
+      thinkingEffort: options?.thinkingEffort,
+    })
     const data = (await response.json()) as ChatCompletionResponse
     const content = data.choices?.[0]?.message?.content
     if (!content) throw new Error(data.error?.message || 'DeepSeek 没有返回内容')
@@ -105,11 +113,17 @@ export class DeepSeekClient {
   }
 
   private async request(
-    input: { messages: ChatMessage[]; stream: boolean; json?: boolean },
+    input: {
+      messages: ChatMessage[]
+      stream: boolean
+      json?: boolean
+      thinkingEffort?: AppSettings['thinkingEffort']
+    },
     signal?: AbortSignal,
   ): Promise<Response> {
     if (!this.settings.deepseekApiKey) throw new Error('尚未配置 DeepSeek API Key')
-    const thinkingEnabled = this.settings.thinkingEffort !== 'disabled'
+    const thinkingEffort = input.thinkingEffort ?? this.settings.thinkingEffort
+    const thinkingEnabled = thinkingEffort !== 'disabled'
     const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -122,7 +136,7 @@ export class DeepSeekClient {
         stream: input.stream,
         thinking: { type: thinkingEnabled ? 'enabled' : 'disabled' },
         ...(thinkingEnabled
-          ? { reasoning_effort: this.settings.thinkingEffort }
+          ? { reasoning_effort: thinkingEffort }
           : { temperature: 0.45 }),
         ...(input.json ? { response_format: { type: 'json_object' } } : {}),
       }),

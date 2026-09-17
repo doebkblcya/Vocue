@@ -1,10 +1,11 @@
 /**
- * 24kHz 立体声 PCM → 16kHz 单声道，并按固定时长切包。
- * SystemAudioDump 上游固定输出 24kHz / Int16 / stereo。
- * 200ms 是官方（Python/Go）流式 demo 的默认分包大小，
- * 官方文档也建议双向流式固定 200ms 以获得最佳性能。
+ * SystemAudioDump 专用处理链：24kHz Int16 立体声 → 16kHz 单声道，
+ * 并按 200ms 切成豆包流式 ASR 数据包。
+ *
+ * 这条链路与渲染进程里的麦克风采集有意分开：两者的数据格式、
+ * 运行进程、生命周期和分包长度都不同，不共享重采样状态。
  */
-export class PcmAudioProcessor {
+export class SystemAudioProcessor {
   private readonly packetBytes: number
   private pending: Buffer<ArrayBufferLike> = Buffer.alloc(0)
   private stereoRemainder: Buffer<ArrayBufferLike> = Buffer.alloc(0)

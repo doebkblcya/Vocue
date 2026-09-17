@@ -44,6 +44,8 @@ const api: VocueApi = {
     getState: () => ipcRenderer.invoke('session:get-state'),
     setMicrophoneActive: (active: boolean) =>
       ipcRenderer.invoke('session:set-microphone-active', active),
+    reportRecordingProblem: (message: string) =>
+      ipcRenderer.invoke('session:report-recording-problem', message),
     sendMicrophoneAudio: (bytes: Uint8Array) =>
       ipcRenderer.send('session:microphone-audio', bytes),
     onState: (callback) => {
@@ -52,6 +54,13 @@ const api: VocueApi = {
       ipcRenderer.on('session:state', listener)
       return () => ipcRenderer.removeListener('session:state', listener)
     },
+  },
+  interviews: {
+    list: () => ipcRenderer.invoke('interviews:list'),
+    get: (id: string) => ipcRenderer.invoke('interviews:get', id),
+    cleanupEcho: (id: string) => ipcRenderer.invoke('interviews:cleanup-echo', id),
+    undoEchoCleanup: (id: string) => ipcRenderer.invoke('interviews:undo-echo-cleanup', id),
+    generateReview: (id: string) => ipcRenderer.invoke('interviews:generate-review', id),
   },
   window: {
     openFloating: () => ipcRenderer.invoke('window:open-floating'),

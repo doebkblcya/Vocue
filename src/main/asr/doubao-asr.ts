@@ -24,12 +24,19 @@ const DOUBAO_ASR_RESOURCE_ID = 'volc.seedasr.sauc.duration'
 /** 配置包占用的序号，音频包从 2 开始递增，与官方 demo 一致 */
 const FULL_CLIENT_REQUEST_SEQ = 1
 
+interface RawAsrUtterance {
+  text?: string
+  definite?: boolean
+  start_time?: number
+  end_time?: number
+}
+
 interface AsrResponse {
   code?: number
   message?: string
   result?: {
     text?: string
-    utterances?: Array<{ text?: string; definite?: boolean }>
+    utterances?: RawAsrUtterance[]
   }
   text?: string
   is_final?: boolean
@@ -53,6 +60,8 @@ export interface DoubaoAsrParams {
   endWindowSize?: number
   /** 音频开头强制按有声处理（ms），避免开头静音导致判不出句子 */
   forceToSpeechTime?: number
+  /** 语义顺滑会删除口头禅；候选人复盘需要保留真实表达，因此可单独关闭。 */
+  enableDdc?: boolean
 }
 
 export const PUSH_TO_TALK_PARAMS: DoubaoAsrParams = {
@@ -69,14 +78,19 @@ export const SYSTEM_AUDIO_PARAMS: DoubaoAsrParams = {
 
 export interface DoubaoAsrCallbacks {
   onPartial: (text: string) => void
-  onFinal: (text: string) => void
+  onFinal: (text: string, timing?: AsrUtteranceTiming) => void
   /** 服务端返回最后一包（is_last_package），表示这一段音频已经识别完毕 */
-  onSegmentEnd: (text: string) => void
+  onSegmentEnd: (text: string, timing?: AsrUtteranceTiming) => void
   onState: (
     state: 'connected' | 'reconnecting' | 'error' | 'idle',
     message?: string,
     code?: number,
   ) => void
+}
+
+export interface AsrUtteranceTiming {
+  startMs: number
+  endMs: number
 }
 
 /**
@@ -108,6 +122,10 @@ export class DoubaoAsr {
   private settleTimer: NodeJS.Timeout | null = null
   /** 最近一条 definite 分句的文本：它是服务端锁定的结果，优先于中间稿 */
   private definiteText = ''
+  private definiteTiming: AsrUtteranceTiming | undefined
+  /** 已实际送入服务端的音频时长，用于把重连后的相对时间戳接回整场时间线。 */
+  private totalAudioBytes = 0
+  private connectionBaseMs = 0
   /**
    * 连接代际。每开一条新连接自增，回调里带上自己那一代，
    * 用来丢弃旧连接迟到的帧——避免「快速连按时上一段的文本串进当前这段」。
@@ -164,8 +182,10 @@ export class DoubaoAsr {
 
   sendAudio(pcm16Mono16k: Buffer | Uint8Array): void {
     if (this.socket?.readyState !== WebSocket.OPEN || this.finished) return
-    const payload = gzipSync(Buffer.from(pcm16Mono16k))
+    const bytes = Buffer.from(pcm16Mono16k)
+    const payload = gzipSync(bytes)
     this.sequence += 1
+    this.totalAudioBytes += bytes.byteLength
     this.socket.send(
       buildFrame(MESSAGE_AUDIO_ONLY_REQUEST, FLAGS_POSITIVE_SEQUENCE, 0, 1, payload, this.sequence),
     )
@@ -185,6 +205,7 @@ export class DoubaoAsr {
     const payload = gzipSync(
       tailPcm16Mono16k?.byteLength ? Buffer.from(tailPcm16Mono16k) : Buffer.alloc(0),
     )
+    this.totalAudioBytes += tailPcm16Mono16k?.byteLength ?? 0
     socket.send(
       buildFrame(
         MESSAGE_AUDIO_ONLY_REQUEST,
@@ -281,7 +302,7 @@ export class DoubaoAsr {
       model_name: 'bigmodel',
       enable_itn: true,
       enable_punc: true,
-      enable_ddc: true,
+      enable_ddc: this.params.enableDdc ?? true,
       show_utterances: true,
       // 用官方默认的 full（全量返回）而不是 single（增量）：
       // 增量返回的终稿可能只是最后一片，会把回答截短。
@@ -334,9 +355,10 @@ export class DoubaoAsr {
       // 用它会把这十几分钟说过的话全部当成一个问题送进模型。
       // 按住说话一段一条连接，两者等价；分句缺失时才退回累计文本。
       const text = (lastUtterance?.text || response.body.result?.text || response.body.text || '').trim()
+      const timing = this.mapTiming(lastUtterance)
       // 服务端最后一包：这一段识别完毕，即使文本为空也要结算，否则会话会一直停在收尾态
       if (response.isLastPackage) {
-        this.callbacks.onSegmentEnd(text || this.latestText)
+        this.callbacks.onSegmentEnd(text || this.latestText, timing)
         this.latestText = ''
         return
       }
@@ -348,7 +370,7 @@ export class DoubaoAsr {
           response.body.final ||
           response.body.definite,
       )
-      if (final) this.finalize(text)
+      if (final) this.finalize(text, timing)
       else this.callbacks.onPartial(text)
     } catch (error) {
       log.error('解析豆包 ASR 消息失败', error)
@@ -360,6 +382,8 @@ export class DoubaoAsr {
     if (this.settleTimer) clearTimeout(this.settleTimer)
     this.settleTimer = null
     this.definiteText = ''
+    this.definiteTiming = undefined
+    this.connectionBaseMs = this.totalAudioBytes / 32
     this.generation += 1
     this.sequence = FULL_CLIENT_REQUEST_SEQ
     this.finished = false
@@ -374,22 +398,37 @@ export class DoubaoAsr {
    * 等它落定再提问，避免拿半句话去生成回答。
    * definiteText 是服务端锁定的分句结果，优先于中间稿 latestText。
    */
-  private finalize(text: string): void {
+  private finalize(text: string, timing?: AsrUtteranceTiming): void {
     const normalized = text.trim()
-    if (normalized) this.definiteText = normalized
+    if (normalized) {
+      this.definiteText = normalized
+      this.definiteTiming = timing
+    }
     if (this.settleTimer) clearTimeout(this.settleTimer)
     this.settleTimer = setTimeout(() => {
       this.settleTimer = null
       const settled = (this.definiteText || this.latestText).trim()
+      const settledTiming = this.definiteTiming
       this.definiteText = ''
+      this.definiteTiming = undefined
       if (!settled) return
       const now = Date.now()
       if (settled === this.lastFinal && now - this.lastFinalAt < 5000) return
       this.lastFinal = settled
       this.lastFinalAt = now
       this.latestText = ''
-      this.callbacks.onFinal(settled)
+      this.callbacks.onFinal(settled, settledTiming)
     }, SEGMENT_SETTLE_MS)
+  }
+
+  private mapTiming(utterance?: RawAsrUtterance): AsrUtteranceTiming | undefined {
+    if (!utterance || typeof utterance.start_time !== 'number' || typeof utterance.end_time !== 'number') {
+      return undefined
+    }
+    return {
+      startMs: this.connectionBaseMs + utterance.start_time,
+      endMs: this.connectionBaseMs + utterance.end_time,
+    }
   }
 
   private scheduleReconnect(): void {

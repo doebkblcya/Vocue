@@ -2,10 +2,12 @@ import { ipcMain, nativeTheme, type WebContents } from 'electron'
 import type { AppSettings, AudioMode, ExtractedDocument } from '../../shared/types'
 import { toUserMessage } from '../../shared/error-message'
 import { DeepSeekClient } from '../ai/deepseek-client'
+import { buildInterviewReviewPrompt } from '../ai/interview-review'
 import { buildAnalysisPrompt, buildInterviewSystemPrompt, parseAnalysis } from '../ai/prompt-builder'
 import { testDoubaoConnection } from '../asr/doubao-asr'
 import { extractDocument } from '../documents/extractor'
 import { InterviewSession } from '../session/interview-session'
+import { planEchoCleanup } from '../session/echo-cleanup'
 import { LocalDatabase } from '../storage/database'
 import { SettingsStore } from '../storage/settings'
 import {
@@ -156,6 +158,56 @@ export function registerIpc(
   handle('session:set-microphone-active', (_sender, active: boolean) =>
     session.setMicrophoneActive(active),
   )
+  handle('session:report-recording-problem', (_sender, message: string) =>
+    session.reportRecordingProblem(message),
+  )
+
+  handle('interviews:list', () => database.listInterviewSessions())
+  handle('interviews:get', (_sender, id: string) => database.getInterviewSession(id))
+  handle('interviews:cleanup-echo', (_sender, id: string) => {
+    const record = database.getInterviewSession(id)
+    if (!record) throw new Error('面试记录不存在')
+    if (record.status === 'recording') throw new Error('请先结束面试，再清理外放回声')
+    return database.applyEchoCleanup(id, planEchoCleanup(record.utterances))
+  })
+  handle('interviews:undo-echo-cleanup', (_sender, id: string) =>
+    database.undoEchoCleanup(id),
+  )
+  handle('interviews:generate-review', async (_sender, id: string) => {
+    const record = database.getInterviewSession(id)
+    if (!record) throw new Error('面试记录不存在')
+    if (record.status === 'recording') throw new Error('请先结束面试，再生成复盘')
+    if (!record.utterances.some((item) => !item.excludedAsEcho)) {
+      throw new Error('这场面试没有可复盘的转写内容')
+    }
+    database.setInterviewReviewState(id, 'reviewing')
+    try {
+      const preparation = record.preparationId
+        ? database.getPreparation(record.preparationId)
+        : null
+      const review = await new DeepSeekClient(settings.get()).complete(
+        [
+          { role: 'system', content: '你是严谨、具体的技术面试复盘教练。' },
+          { role: 'user', content: buildInterviewReviewPrompt(record, preparation) },
+        ],
+        { thinkingEffort: 'high' },
+      )
+      database.setInterviewReviewState(
+        id,
+        record.status === 'incomplete' ? 'incomplete' : 'completed',
+        review,
+      )
+    } catch (error) {
+      database.setInterviewReviewState(
+        id,
+        record.status === 'incomplete' ? 'incomplete' : 'ready',
+        record.reviewMarkdown,
+        toUserMessage(error, '生成复盘失败，请重试'),
+      )
+      throw error
+    }
+    return database.getInterviewSession(id)
+  })
 
   ipcMain.on('session:microphone-audio', (event, bytes: Uint8Array) => {
     trustedSender(event.sender)

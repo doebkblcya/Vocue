@@ -2,6 +2,7 @@ class MicrophoneCapture {
   private context: AudioContext | null = null
   private stream: MediaStream | null = null
   private sending = false
+  private continuous = false
   private ready = false
   private samples: number[] = []
   /** 串行化按下/松开，避免首次授权期间重复初始化或松开事件越过按下事件。 */
@@ -14,10 +15,34 @@ class MicrophoneCapture {
     return operation
   }
 
+  startContinuous(): Promise<void> {
+    const operation = this.transition.then(async () => {
+      if (this.continuous) return
+      if (!this.context) await this.initialize(true)
+      this.continuous = true
+      this.ready = true
+      this.samples = []
+    })
+    this.transition = operation.catch(() => undefined)
+    return operation
+  }
+
+  stopContinuous(): Promise<void> {
+    const operation = this.transition.then(async () => {
+      if (this.continuous && this.ready) this.sendRemainingPacket()
+      this.continuous = false
+      this.ready = false
+      this.samples = []
+      await this.releaseResources()
+    })
+    this.transition = operation.catch(() => undefined)
+    return operation
+  }
+
   private async applySending(active: boolean): Promise<void> {
     if (active) {
       if (this.sending) return
-      if (!this.context) await this.initialize()
+      if (!this.context) await this.initialize(false)
       this.sending = true
       this.ready = false
       this.samples = []
@@ -44,8 +69,8 @@ class MicrophoneCapture {
     await window.vocue.session.setMicrophoneActive(false)
   }
 
-  stop(): void {
-    this.transition = this.transition
+  stop(): Promise<void> {
+    const operation = this.transition
       .catch(() => undefined)
       .then(async () => {
         if (this.sending) {
@@ -56,20 +81,21 @@ class MicrophoneCapture {
           }
         }
         this.sending = false
+        this.continuous = false
         this.ready = false
-        this.stream?.getTracks().forEach((track) => track.stop())
-        await this.context?.close()
-        this.stream = null
-        this.context = null
         this.samples = []
+        await this.releaseResources()
       })
+    this.transition = operation.catch(() => undefined)
+    return operation
   }
 
-  private async initialize(): Promise<void> {
+  private async initialize(echoCancellation: boolean): Promise<void> {
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
-        echoCancellation: false,
+        // 整场记录时尽量滤掉扬声器里的面试官声音；按住说话仍保留原始人声优先策略。
+        echoCancellation,
         noiseSuppression: true,
         autoGainControl: true,
       },
@@ -82,7 +108,9 @@ class MicrophoneCapture {
     const silent = this.context.createGain()
     silent.gain.value = 0
     worklet.port.onmessage = (event: MessageEvent<Float32Array>) => {
-      if (this.sending) this.process(event.data, this.context?.sampleRate ?? 48_000)
+      if (this.sending || this.continuous) {
+        this.process(event.data, this.context?.sampleRate ?? 48_000)
+      }
     }
     source.connect(worklet)
     worklet.connect(silent).connect(this.context.destination)
@@ -127,6 +155,13 @@ class MicrophoneCapture {
       pcm[index] = packet[index] < 0 ? packet[index] * 32768 : packet[index] * 32767
     }
     window.vocue.session.sendMicrophoneAudio(new Uint8Array(pcm.buffer))
+  }
+
+  private async releaseResources(): Promise<void> {
+    this.stream?.getTracks().forEach((track) => track.stop())
+    await this.context?.close()
+    this.stream = null
+    this.context = null
   }
 }
 

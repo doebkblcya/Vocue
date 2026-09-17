@@ -23,8 +23,12 @@ export function FloatingWindow(): React.JSX.Element {
   }, [session.mode])
 
   const stopAndClose = async (): Promise<void> => {
-    await window.vocue.session.stop()
-    await window.vocue.window.closeFloating()
+    try {
+      if (session.mode === 'system') await microphoneCapture.stopContinuous()
+    } finally {
+      await window.vocue.session.stop()
+      await window.vocue.window.closeFloating()
+    }
   }
 
   const reconnect = async (): Promise<void> => {
@@ -83,9 +87,27 @@ export function FloatingWindow(): React.JSX.Element {
       window.removeEventListener('keydown', keyDown)
       window.removeEventListener('keyup', keyUp)
       window.removeEventListener('blur', releaseOnBlur)
-      microphoneCapture.stop()
     }
   }, [setRecording])
+
+  useEffect(() => {
+    if (session.mode !== 'system' || !session.recordingTranscript) return
+    let active = true
+    void microphoneCapture.startContinuous().catch((error: unknown) => {
+      if (!active) return
+      const message = getErrorMessage(error)
+      setMicError(message)
+      void window.vocue.session.reportRecordingProblem(message)
+    })
+    return () => {
+      active = false
+      void microphoneCapture.stopContinuous()
+    }
+  }, [session.mode, session.recordingTranscript])
+
+  useEffect(() => () => {
+    void microphoneCapture.stop()
+  }, [])
 
   // 这个胶囊只描述「语音服务」状态，不含 AI 生成（生成是模型侧的事）
   const status = {
@@ -106,7 +128,7 @@ export function FloatingWindow(): React.JSX.Element {
   const statusContent = (
     <>
       {session.mode === 'microphone' ? <Mic size={14} /> : <Radio size={14} />}
-      <span>{verifying ? '正在检测服务' : status}</span>
+      <span>{verifying ? '正在检测服务' : session.recordingTranscript ? '记录中' : status}</span>
       {canVerify && <RefreshCw size={12} className="status-refresh-icon" />}
       {verifying && <RefreshCw size={12} className="spin" />}
     </>

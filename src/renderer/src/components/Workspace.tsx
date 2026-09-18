@@ -1,4 +1,4 @@
-import { FileText, FolderPlus, Home, Play, Settings, Sparkles, Square } from 'lucide-react'
+import { FileText, FolderPlus, Home, Play, Settings, Square } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
 import type { AudioMode, InterviewRecordSummary, PreparationSummary } from '../../../shared/types'
 import { useSessionState } from '../hooks'
@@ -74,10 +74,6 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
     <main className="home-shell workspace-shell">
       {/* 全局顶栏：左边永久让给 macOS 交通灯，右边只放全局动作 */}
       <header className="titlebar">
-        <div className="titlebar-brand">
-          <span className="brand-mark"><Sparkles size={15} /></span>
-          <strong>Vocue</strong>
-        </div>
         <div className="titlebar-actions">
           {isActive && (
             session.recordId ? (

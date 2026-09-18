@@ -1,14 +1,18 @@
 import { FileText, Trash2, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { ExtractedDocument, Preparation } from '../../../shared/types'
+import type { LibraryDocumentSummary } from '../../../shared/types'
+import { describeUsage } from '../document-usage'
 import { getErrorMessage } from '../error-message'
+import { LibraryPickerDialog } from './LibraryPickerDialog'
+
+const MAX_DOCUMENTS = 5
 
 interface Draft {
   id?: string
   name: string
   jobDescription: string
-  resume: string
-  documents: ExtractedDocument[]
+  resumeDocumentId: string | null
+  documentIds: string[]
 }
 
 interface Props {
@@ -17,67 +21,82 @@ interface Props {
   onSaved: () => Promise<void>
 }
 
-const EMPTY: Draft = { name: '', jobDescription: '', resume: '', documents: [] }
+const EMPTY: Draft = { name: '', jobDescription: '', resumeDocumentId: null, documentIds: [] }
 
-const toDraft = (preparation: Preparation): Draft => ({
-  id: preparation.id,
-  name: preparation.name,
-  jobDescription: preparation.jobDescription,
-  resume: preparation.resume,
-  documents: preparation.documents.map(({ filename, kind, content }) => ({ filename, kind, content })),
-})
-
+/**
+ * 档案不再自己存正文：JD 仍然是档案独有的文本，
+ * 简历和补充资料都只是对文档库的引用。
+ */
 export function ArchiveEditorDialog({
   preparationId,
   onClose,
   onSaved,
 }: Props): React.JSX.Element {
   const [draft, setDraft] = useState<Draft>(EMPTY)
+  const [library, setLibrary] = useState<LibraryDocumentSummary[]>([])
   const [loading, setLoading] = useState(Boolean(preparationId))
+  /** 库列表没到手之前不渲染引用，避免把还没解析到的文档显示成「已删除」 */
+  const [libraryReady, setLibraryReady] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [picker, setPicker] = useState<'resume' | 'documents' | null>(null)
   const [pendingJobImage, setPendingJobImage] = useState<File | null>(null)
+
+  const refreshLibrary = async (): Promise<void> => {
+    setLibrary(await window.vocue.library.list())
+    setLibraryReady(true)
+  }
+
+  useEffect(() => {
+    void refreshLibrary()
+  }, [])
 
   useEffect(() => {
     if (!preparationId) return
     void window.vocue.preparations.get(preparationId).then((preparation) => {
-      if (preparation) setDraft(toDraft(preparation))
+      if (preparation) {
+        setDraft({
+          id: preparation.id,
+          name: preparation.name,
+          jobDescription: preparation.jobDescription,
+          resumeDocumentId: preparation.resume?.id ?? null,
+          documentIds: preparation.documents.map((document) => document.libraryDocumentId),
+        })
+      }
       setLoading(false)
     })
   }, [preparationId])
 
-  const addFiles = async (files: FileList | null): Promise<void> => {
+  const summaryOf = (id: string): LibraryDocumentSummary | undefined =>
+    library.find((document) => document.id === id)
+
+  /** 直接在档案里上传：先入库，再把新文档挂到这份档案上 */
+  const uploadDocuments = async (files: FileList | null): Promise<void> => {
     if (!files?.length) return
-    if (draft.documents.length + files.length > 5) {
-      setError('补充资料最多 5 个文件')
+    if (draft.documentIds.length + files.length > MAX_DOCUMENTS) {
+      setError(`补充资料最多 ${MAX_DOCUMENTS} 份`)
       return
     }
     setBusy(true)
     setError('')
+    setNotice('')
     try {
-      const documents = await Promise.all(
+      const extracted = await Promise.all(
         Array.from(files).map(async (file) =>
           window.vocue.documents.extract(file.name, new Uint8Array(await file.arrayBuffer())),
         ),
       )
-      setDraft((current) => ({ ...current, documents: [...current.documents, ...documents] }))
-    } catch (reason) {
-      setError(getErrorMessage(reason))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const importResume = async (file: File | undefined): Promise<void> => {
-    if (!file) return
-    setBusy(true)
-    setError('')
-    try {
-      const document = await window.vocue.documents.extract(
-        file.name,
-        new Uint8Array(await file.arrayBuffer()),
-      )
-      setDraft((current) => ({ ...current, resume: document.content }))
+      const addedIds: string[] = []
+      const messages: string[] = []
+      for (const document of extracted) {
+        const saved = await window.vocue.library.add(document)
+        addedIds.push(saved.id)
+        messages.push(`「${saved.filename}」${describeUsage(saved.content.length).text}`)
+      }
+      await refreshLibrary()
+      setDraft((current) => ({ ...current, documentIds: [...current.documentIds, ...addedIds] }))
+      setNotice(messages.join('；'))
     } catch (reason) {
       setError(getErrorMessage(reason))
     } finally {
@@ -144,6 +163,9 @@ export function ArchiveEditorDialog({
     }
   }
 
+  const resume = draft.resumeDocumentId ? summaryOf(draft.resumeDocumentId) : undefined
+  const resumeUsage = resume ? describeUsage(resume.totalChars) : null
+
   return (
     <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="archive-title">
       <section className="dialog-card archive-dialog">
@@ -155,7 +177,7 @@ export function ArchiveEditorDialog({
         </header>
 
         <div className="dialog-content archive-form">
-          {loading ? <div className="loading compact">正在读取档案…</div> : (
+          {loading || !libraryReady ? <div className="loading compact">正在读取档案…</div> : (
             <>
               <label>档案名称</label>
               <input
@@ -164,86 +186,121 @@ export function ArchiveEditorDialog({
                 onChange={(event) => setDraft({ ...draft, name: event.target.value })}
               />
 
-              <div className="archive-columns">
-                <div>
-                  <div className="archive-field-header">
-                    <label>岗位 JD</label>
-                    <label className="inline-upload">
-                      <Upload size={13} />上传图片
-                      <input
-                        type="file"
-                        accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
-                        onChange={(event) => {
-                          void importJobImage(event.target.files?.[0])
-                          event.currentTarget.value = ''
-                        }}
-                      />
-                    </label>
-                  </div>
-                  <textarea
-                    value={draft.jobDescription}
-                    placeholder="粘贴岗位描述文字或截图，也可以上传图片…"
-                    onChange={(event) => setDraft({ ...draft, jobDescription: event.target.value })}
-                    onPaste={(event) => {
-                      const image = Array.from(event.clipboardData.items)
-                        .find((item) => item.type.startsWith('image/'))
-                        ?.getAsFile()
-                      if (!image) return
-                      event.preventDefault()
-                      setPendingJobImage(image)
-                    }}
-                  />
+              <div className="archive-field">
+                <div className="archive-field-head">
+                  <label>岗位 JD</label>
+                  <label className="inline-upload">
+                    <Upload size={13} />上传图片
+                    <input
+                      type="file"
+                      accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                      onChange={(event) => {
+                        void importJobImage(event.target.files?.[0])
+                        event.currentTarget.value = ''
+                      }}
+                    />
+                  </label>
                 </div>
-                <div>
-                  <div className="archive-field-header">
-                    <label>我的简历</label>
-                    <label className="inline-upload">
-                      <Upload size={13} />上传简历
-                      <input
-                        type="file"
-                        accept=".pdf,.md,.markdown,.txt"
-                        onChange={(event) => {
-                          void importResume(event.target.files?.[0])
-                          event.currentTarget.value = ''
-                        }}
-                      />
-                    </label>
-                  </div>
-                  <textarea
-                    value={draft.resume}
-                    placeholder="粘贴简历正文，或上传 PDF、Markdown、TXT…"
-                    onChange={(event) => setDraft({ ...draft, resume: event.target.value })}
-                  />
+                <textarea
+                  value={draft.jobDescription}
+                  placeholder="粘贴岗位描述文字或截图，也可以上传图片…"
+                  onChange={(event) => setDraft({ ...draft, jobDescription: event.target.value })}
+                  onPaste={(event) => {
+                    const image = Array.from(event.clipboardData.items)
+                      .find((item) => item.type.startsWith('image/'))
+                      ?.getAsFile()
+                    if (!image) return
+                    event.preventDefault()
+                    setPendingJobImage(image)
+                  }}
+                />
+              </div>
+
+              <div className="archive-field">
+                <div className="archive-field-head">
+                  <label>我的简历</label>
+                  <button
+                    className="button secondary small"
+                    disabled={busy}
+                    onClick={() => setPicker('resume')}
+                  >
+                    从文档库选择
+                  </button>
+                </div>
+                <div className={`archive-picked ${resume ? '' : 'empty'}`}>
+                  <span className="library-row-icon"><FileText size={16} /></span>
+                  <span className="archive-picked-copy">
+                    {resume && resumeUsage ? (
+                      <>
+                        <strong>{resume.filename}</strong>
+                        <small className={resumeUsage.truncated ? 'warn' : ''}>{resumeUsage.text}</small>
+                      </>
+                    ) : (
+                      <>
+                        <strong>未选择简历</strong>
+                        <small>先到「文档库」上传一份，之后可以跨岗位复用。</small>
+                      </>
+                    )}
+                  </span>
+                  {resume && (
+                    <button
+                      className="library-row-remove"
+                      title="取消选择"
+                      onClick={() => setDraft((current) => ({ ...current, resumeDocumentId: null }))}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <div className="archive-documents-heading">
-                <div><strong>补充资料</strong><small>最多 5 个；支持 PDF、Markdown、TXT</small></div>
-                <label className="upload-button">
-                  <Upload size={15} />添加文件
-                  <input
-                    type="file"
-                    multiple
-                    accept=".pdf,.md,.markdown,.txt"
-                    onChange={(event) => void addFiles(event.target.files)}
-                  />
-                </label>
-              </div>
-              <div className="document-chips">
-                {draft.documents.map((document, index) => (
-                  <span key={`${document.filename}-${index}`}>
-                    <FileText size={14} />{document.filename}
+              <div className="archive-field">
+                <div className="archive-field-head">
+                  <label>补充资料（最多 {MAX_DOCUMENTS} 份）</label>
+                  <div className="archive-field-actions">
+                    <label className="inline-upload">
+                      <Upload size={13} />上传新文件
+                      <input
+                        type="file"
+                        multiple
+                        accept=".pdf,.md,.markdown,.txt"
+                        onChange={(event) => {
+                          void uploadDocuments(event.target.files)
+                          event.currentTarget.value = ''
+                        }}
+                      />
+                    </label>
                     <button
-                      title="移除"
-                      onClick={() => setDraft((current) => ({
-                        ...current,
-                        documents: current.documents.filter((_, itemIndex) => itemIndex !== index),
-                      }))}
-                    >×</button>
-                  </span>
-                ))}
-                {!draft.documents.length && <span className="empty-chip">没有补充资料</span>}
+                      className="button secondary small"
+                      disabled={busy}
+                      onClick={() => setPicker('documents')}
+                    >
+                      从文档库选择
+                    </button>
+                  </div>
+                </div>
+                <div className="document-chips">
+                  {draft.documentIds.map((id) => {
+                    const document = summaryOf(id)
+                    const usage = document ? describeUsage(document.totalChars) : null
+                    return (
+                      <span key={id} className={usage?.truncated ? 'warn' : ''}>
+                        <FileText size={14} />{document?.filename ?? '已删除的文档'}
+                        <button
+                          title="移除"
+                          onClick={() => setDraft((current) => ({
+                            ...current,
+                            documentIds: current.documentIds.filter((item) => item !== id),
+                          }))}
+                        >×</button>
+                      </span>
+                    )
+                  })}
+                  {!draft.documentIds.length && <span className="empty-chip">没有补充资料</span>}
+                </div>
               </div>
+
+              {notice && <div className="notice notice-success">{notice}</div>}
               {error && <div className="notice notice-error" role="alert">{error}</div>}
             </>
           )}
@@ -259,12 +316,32 @@ export function ArchiveEditorDialog({
           </div>
           <div>
             <button className="button ghost" disabled={busy} onClick={onClose}>取消</button>
-            <button className="button primary" disabled={busy || loading} onClick={() => void save()}>
+            <button className="button primary" disabled={busy || loading || !libraryReady} onClick={() => void save()}>
               {busy ? '处理中…' : '保存'}
             </button>
           </div>
         </footer>
       </section>
+
+      {picker && (
+        <LibraryPickerDialog
+          title={picker === 'resume' ? '选择简历' : '选择补充资料'}
+          documents={library}
+          selectedIds={picker === 'resume'
+            ? (draft.resumeDocumentId ? [draft.resumeDocumentId] : [])
+            : draft.documentIds}
+          multiple={picker === 'documents'}
+          onClose={() => setPicker(null)}
+          onConfirm={(ids) => {
+            if (picker === 'resume') {
+              setDraft((current) => ({ ...current, resumeDocumentId: ids[0] ?? null }))
+            } else {
+              setDraft((current) => ({ ...current, documentIds: ids.slice(0, MAX_DOCUMENTS) }))
+            }
+            setPicker(null)
+          }}
+        />
+      )}
 
       {pendingJobImage && (
         <div className="paste-confirm-backdrop">

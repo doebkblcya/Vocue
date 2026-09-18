@@ -1,6 +1,7 @@
 export type AudioMode = 'system' | 'microphone'
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type ThinkingEffort = 'disabled' | 'low' | 'high' | 'max'
+export type DocumentKind = 'pdf' | 'markdown' | 'text'
 
 export interface AppSettings {
   deepseekApiKey: string
@@ -29,11 +30,33 @@ export interface VisibilityTestResult {
   protected: CapturePreview[]
 }
 
+/** 文档库里的文档：全应用只存一份，档案按 id 引用它 */
+export interface LibraryDocument {
+  id: string
+  filename: string
+  kind: DocumentKind
+  content: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** 列表用：不带正文，只带字数，便于界面显示上限占用情况 */
+export interface LibraryDocumentSummary {
+  id: string
+  filename: string
+  kind: DocumentKind
+  updatedAt: string
+  /** 全文长度 */
+  totalChars: number
+}
+
+/** 档案对库文档的引用。filename / content 由库解析后带出，方便直接使用 */
 export interface PreparationDocument {
   id: string
   preparationId: string
+  libraryDocumentId: string
   filename: string
-  kind: 'pdf' | 'markdown' | 'text'
+  kind: DocumentKind
   content: string
   position: number
   createdAt: string
@@ -43,7 +66,8 @@ export interface Preparation {
   id: string
   name: string
   jobDescription: string
-  resume: string
+  /** 从文档库选中的简历；未选择时为 null */
+  resume: LibraryDocument | null
   createdAt: string
   updatedAt: string
   documents: PreparationDocument[]
@@ -54,6 +78,7 @@ export interface PreparationSummary {
   name: string
   updatedAt: string
   documentCount: number
+  hasResume: boolean
 }
 
 /**
@@ -150,7 +175,7 @@ export interface InterviewRecord extends InterviewRecordSummary {
 
 export interface ExtractedDocument {
   filename: string
-  kind: PreparationDocument['kind']
+  kind: DocumentKind
   content: string
 }
 
@@ -170,9 +195,16 @@ export interface VocueApi {
       id?: string
       name: string
       jobDescription: string
-      resume: string
-      documents: ExtractedDocument[]
+      resumeDocumentId: string | null
+      documentIds: string[]
     }) => Promise<Preparation>
+    remove: (id: string) => Promise<void>
+  }
+  library: {
+    list: () => Promise<LibraryDocumentSummary[]>
+    get: (id: string) => Promise<LibraryDocument | null>
+    add: (document: ExtractedDocument) => Promise<LibraryDocument>
+    rename: (id: string, filename: string) => Promise<LibraryDocument>
     remove: (id: string) => Promise<void>
   }
   documents: {

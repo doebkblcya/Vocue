@@ -84,15 +84,26 @@ export function registerIpc(
       id?: string
       name: string
       jobDescription: string
-      resume: string
-      documents: ExtractedDocument[]
+      resumeDocumentId: string | null
+      documentIds: string[]
     }) => {
       if (!input.name.trim()) throw new Error('请输入准备名称')
-      if (input.documents.length > 5) throw new Error('补充资料最多 5 个文件')
+      if (input.documentIds.length > 5) throw new Error('补充资料最多 5 份')
       return database.savePreparation(input)
     },
   )
   handle('preparations:remove', (_sender, id: string) => database.removePreparation(id))
+
+  handle('library:list', () => database.listLibraryDocuments())
+  handle('library:get', (_sender, id: string) => database.getLibraryDocument(id))
+  handle('library:add', (_sender, document: ExtractedDocument) => {
+    if (!document.content.trim()) throw new Error('文档内容为空')
+    return database.addLibraryDocument(document)
+  })
+  handle('library:rename', (_sender, id: string, filename: string) =>
+    database.renameLibraryDocument(id, filename),
+  )
+  handle('library:remove', (_sender, id: string) => database.removeLibraryDocument(id))
 
   handle('documents:extract', (_sender, filename: string, bytes: Uint8Array) =>
     extractDocument(filename, bytes),

@@ -22,10 +22,17 @@ const api: VocueApi = {
       id?: string
       name: string
       jobDescription: string
-      resume: string
-      documents: ExtractedDocument[]
+      resumeDocumentId: string | null
+      documentIds: string[]
     }) => ipcRenderer.invoke('preparations:save', input),
     remove: (id: string) => ipcRenderer.invoke('preparations:remove', id),
+  },
+  library: {
+    list: () => ipcRenderer.invoke('library:list'),
+    get: (id: string) => ipcRenderer.invoke('library:get', id),
+    add: (document: ExtractedDocument) => ipcRenderer.invoke('library:add', document),
+    rename: (id: string, filename: string) => ipcRenderer.invoke('library:rename', id, filename),
+    remove: (id: string) => ipcRenderer.invoke('library:remove', id),
   },
   documents: {
     extract: (filename: string, bytes: Uint8Array) =>

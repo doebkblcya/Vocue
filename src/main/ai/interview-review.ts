@@ -1,4 +1,5 @@
 import type { InterviewRecord, Preparation } from '../../shared/types'
+import { usableMaterial } from '../../shared/limits'
 
 export function buildInterviewReviewPrompt(
   record: InterviewRecord,
@@ -23,7 +24,13 @@ export function buildInterviewReviewPrompt(
     '## 关键问题回看（最多 5 个问题，简述回答质量与更好的答法）',
     '## 下一步准备（最多 5 条）',
     preparation
-      ? `岗位档案：${preparation.name}\n岗位描述：${preparation.jobDescription}\n候选人简历：${preparation.resume}`
+      ? [
+          `岗位档案：${preparation.name}`,
+          `岗位描述：${usableMaterial(preparation.jobDescription)}`,
+          preparation.resume
+            ? `候选人简历：${usableMaterial(preparation.resume.content)}`
+            : '候选人简历：未提供',
+        ].join('\n')
       : '岗位档案：通用面试（没有额外 JD 或简历）',
     record.status === 'incomplete'
       ? '记录完整性：本次转写曾发生中断，结论中请明确提醒用户复核缺失处。'

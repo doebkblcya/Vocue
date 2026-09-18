@@ -5,17 +5,27 @@ import {
   buildInterviewSystemPrompt,
   parseInterviewAnswer,
 } from '../src/main/ai/prompt-builder'
-import type { Preparation } from '../src/shared/types'
+import type { LibraryDocument, Preparation } from '../src/shared/types'
+
+const resume: LibraryDocument = {
+  id: 'r1',
+  filename: '简历.md',
+  kind: 'markdown',
+  content: '做过 Electron',
+  createdAt: '',
+  updatedAt: '',
+}
 
 const preparation: Preparation = {
   id: '1',
   name: '测试岗位',
   jobDescription: '需要 TypeScript',
-  resume: '做过 Electron',
+  resume,
   createdAt: '',
   updatedAt: '',
   documents: [{
-    id: 'd1', preparationId: '1', filename: 'notes.md', kind: 'markdown',
+    id: 'd1', preparationId: '1', libraryDocumentId: 'lib-notes',
+    filename: 'notes.md', kind: 'markdown',
     content: '补充项目背景', position: 0, createdAt: '',
   }],
 }
@@ -37,7 +47,7 @@ describe('prompt builder', () => {
   it('把回答限制为适合现场阅读的短提词', () => {
     for (const prompt of [
       buildGenericInterviewSystemPrompt(),
-      buildInterviewSystemPrompt({ ...preparation, jobDescription: '', resume: '', documents: [] }),
+      buildInterviewSystemPrompt({ ...preparation, jobDescription: '', resume: null, documents: [] }),
     ]) {
       expect(prompt).toContain('2 到 3 个短要点')
       expect(prompt).toContain('约 60 个汉字以内')

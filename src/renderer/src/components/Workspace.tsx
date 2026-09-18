@@ -1,9 +1,10 @@
-import { FileText, FolderPlus, Home, Play, Settings, Square } from 'lucide-react'
+import { FileText, FolderPlus, Home, Library, Play, Settings, Square } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import type { AudioMode, InterviewRecordSummary, PreparationSummary } from '../../../shared/types'
 import { useSessionState } from '../hooks'
 import { ArchiveCard } from './ArchiveCard'
 import { ArchiveEditorDialog } from './ArchiveEditorDialog'
+import { LibraryView } from './LibraryView'
 import { PageHeader } from './PageHeader'
 import { StartInterviewDialog } from './StartInterviewDialog'
 import { InterviewRecordView } from './InterviewRecordView'
@@ -12,7 +13,7 @@ interface Props {
   openSettings: () => void
 }
 
-type WorkspaceView = 'home' | 'archives'
+type WorkspaceView = 'home' | 'archives' | 'library'
 
 export function Workspace({ openSettings }: Props): React.JSX.Element {
   const [preparations, setPreparations] = useState<PreparationSummary[]>([])
@@ -135,6 +136,13 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
             <span className="row-icon"><FileText size={16} /></span>
             <strong>面试档案</strong>
           </button>
+          <button
+            className={`sidebar-row ${!selectedRecordId && view === 'library' ? 'selected' : ''}`}
+            onClick={() => openView('library')}
+          >
+            <span className="row-icon"><Library size={16} /></span>
+            <strong>文档库</strong>
+          </button>
         </nav>
 
         <div className="sidebar-section-title"><span>面试记录</span><small>{records.length}</small></div>
@@ -243,7 +251,7 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
               </section>
             </div>
           </div>
-        ) : (
+        ) : view === 'archives' ? (
           <div className="page">
             <PageHeader
               eyebrow="ARCHIVES"
@@ -271,12 +279,14 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
                   <span className="archive-card-icon"><FolderPlus size={20} /></span>
                   <span>
                     <strong>创建第一份面试档案</strong>
-                    <small>添加 JD 和简历后，回答会更贴合你的经历。</small>
+                    <small>先到「文档库」放一份简历，再回来建档案。</small>
                   </span>
                 </button>
               )}
             </div>
           </div>
+        ) : (
+          <LibraryView onChanged={refresh} />
         )}
       </section>
 

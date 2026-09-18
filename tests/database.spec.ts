@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { LocalDatabase } from '../src/main/storage/database'
 import { planEchoCleanup } from '../src/main/session/echo-cleanup'
@@ -21,22 +22,55 @@ function createDatabase(): LocalDatabase {
   return database
 }
 
-describe('LocalDatabase.savePreparation', () => {
+describe('LocalDatabase 文档库与档案引用', () => {
+  it('档案只按 id 引用库文档，同内容在库里只有一份', () => {
+    const database = createDatabase()
+    const resume = database.addLibraryDocument({
+      filename: '简历.md', kind: 'markdown', content: '一份简历',
+    })
+    const notes = database.addLibraryDocument({
+      filename: 'notes.md', kind: 'markdown', content: '补充资料',
+    })
+
+    const first = database.savePreparation({
+      name: '岗位 A',
+      jobDescription: 'JD A',
+      resumeDocumentId: resume.id,
+      documentIds: [notes.id],
+    })
+    const second = database.savePreparation({
+      name: '岗位 B',
+      jobDescription: 'JD B',
+      resumeDocumentId: resume.id,
+      documentIds: [],
+    })
+
+    expect(first.resume?.id).toBe(resume.id)
+    expect(first.resume?.content).toBe('一份简历')
+    expect(first.documents.map((item) => item.libraryDocumentId)).toEqual([notes.id])
+    // 两份档案共用同一份简历，库里仍然只有两条文档
+    expect(second.resume?.id).toBe(resume.id)
+    expect(database.listLibraryDocuments()).toHaveLength(2)
+  })
+
   it('按 id 更新档案并整份替换补充资料', () => {
     const database = createDatabase()
+    const notes = database.addLibraryDocument({
+      filename: 'notes.md', kind: 'markdown', content: '补充资料',
+    })
     const created = database.savePreparation({
       name: '旧名称',
       jobDescription: '旧 JD',
-      resume: '简历',
-      documents: [{ filename: 'notes.md', kind: 'markdown', content: '补充资料' }],
+      resumeDocumentId: null,
+      documentIds: [notes.id],
     })
 
     const updated = database.savePreparation({
       id: created.id,
       name: '新名称',
       jobDescription: '新 JD',
-      resume: '简历',
-      documents: [],
+      resumeDocumentId: null,
+      documentIds: [],
     })
 
     expect(updated.id).toBe(created.id)
@@ -44,21 +78,115 @@ describe('LocalDatabase.savePreparation', () => {
     expect(updated.jobDescription).toBe('新 JD')
     expect(updated.documents).toEqual([])
     expect(updated.createdAt).toBe(created.createdAt)
+    // 解除引用不应该把库文档本身删掉
+    expect(database.listLibraryDocuments()).toHaveLength(1)
   })
 
-  it('列表返回每份档案的补充资料数量', () => {
+  it('删掉库文档时档案里的引用自动摘掉', () => {
     const database = createDatabase()
+    const resume = database.addLibraryDocument({
+      filename: '简历.md', kind: 'markdown', content: '一份简历',
+    })
+    const notes = database.addLibraryDocument({
+      filename: 'notes.md', kind: 'markdown', content: '补充资料',
+    })
+    const created = database.savePreparation({
+      name: '岗位',
+      jobDescription: '',
+      resumeDocumentId: resume.id,
+      documentIds: [notes.id],
+    })
+
+    database.removeLibraryDocument(notes.id)
+    database.removeLibraryDocument(resume.id)
+
+    const after = database.getPreparation(created.id)!
+    expect(after.resume).toBeNull()
+    expect(after.documents).toEqual([])
+  })
+
+  it('列表返回补充资料数量与是否选了简历', () => {
+    const database = createDatabase()
+    const resume = database.addLibraryDocument({
+      filename: '简历.md', kind: 'markdown', content: '简历',
+    })
     database.savePreparation({
       name: '档案',
       jobDescription: '',
-      resume: '',
-      documents: [
-        { filename: 'a.md', kind: 'markdown', content: 'A' },
-        { filename: 'b.md', kind: 'markdown', content: 'B' },
+      resumeDocumentId: resume.id,
+      documentIds: [
+        database.addLibraryDocument({ filename: 'a.md', kind: 'markdown', content: 'A' }).id,
+        database.addLibraryDocument({ filename: 'b.md', kind: 'markdown', content: 'B' }).id,
       ],
     })
 
-    expect(database.listPreparations()[0]).toMatchObject({ name: '档案', documentCount: 2 })
+    expect(database.listPreparations()[0]).toMatchObject({
+      name: '档案',
+      documentCount: 2,
+      hasResume: true,
+    })
+  })
+
+  it('库文档保存全文，不做任何截断', () => {
+    const database = createDatabase()
+    const saved = database.addLibraryDocument({
+      filename: 'long.txt', kind: 'text', content: 'x'.repeat(200_000),
+    })
+
+    expect(saved.content).toHaveLength(200_000)
+    expect(database.listLibraryDocuments()[0].totalChars).toBe(200_000)
+  })
+})
+
+describe('旧数据库迁移到文档库', () => {
+  it('把简历和文档提成库文档，并按正文去重', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'vocue-migration-test-'))
+    const path = join(directory, 'vocue.sqlite3')
+
+    // 手工造一个旧结构：简历挂在档案上，文档正文复制在每份档案下
+    const legacy = new DatabaseSync(path)
+    legacy.exec(`
+      CREATE TABLE preparations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        job_description TEXT NOT NULL DEFAULT '',
+        resume TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE preparation_documents (
+        id TEXT PRIMARY KEY,
+        preparation_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        content TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO preparations VALUES
+        ('p1', '岗位 A', 'JD A', '同一份简历', '2026-01-01', '2026-01-01');
+      INSERT INTO preparations VALUES
+        ('p2', '岗位 B', 'JD B', '同一份简历', '2026-01-01', '2026-01-01');
+      INSERT INTO preparation_documents VALUES
+        ('d1', 'p1', 'notes.md', 'markdown', '同一份笔记', 0, '2026-01-01');
+      INSERT INTO preparation_documents VALUES
+        ('d2', 'p2', 'notes.md', 'markdown', '同一份笔记', 0, '2026-01-01');
+    `)
+    legacy.close()
+
+    const database = new LocalDatabase(path)
+    databases.push({ database, directory })
+
+    // 两份档案共用同一份简历和同一份笔记：库里只应该出现两条
+    expect(database.listLibraryDocuments()).toHaveLength(2)
+
+    const first = database.getPreparation('p1')!
+    const second = database.getPreparation('p2')!
+    expect(first.name).toBe('岗位 A')
+    expect(first.jobDescription).toBe('JD A')
+    expect(first.resume?.content).toBe('同一份简历')
+    expect(first.resume?.id).toBe(second.resume?.id)
+    expect(first.documents[0].libraryDocumentId).toBe(second.documents[0].libraryDocumentId)
   })
 })
 

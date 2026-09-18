@@ -3,9 +3,11 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type {
+  DocumentKind,
   ExtractedDocument,
+  LibraryDocument,
+  LibraryDocumentSummary,
   Preparation,
-  PreparationDocument,
   PreparationSummary,
   InterviewRecord,
   InterviewRecordStatus,
@@ -18,19 +20,30 @@ interface PreparationRow {
   id: string
   name: string
   job_description: string
-  resume: string
+  resume_document_id: string | null
   created_at: string
   updated_at: string
 }
 
-interface DocumentRow {
+interface LibraryRow {
   id: string
-  preparation_id: string
   filename: string
-  kind: PreparationDocument['kind']
+  kind: DocumentKind
   content: string
+  created_at: string
+  updated_at: string
+}
+
+/** 档案引用的库文档：filename / kind / content 由库解析后带出 */
+interface PreparationDocumentRow {
+  link_id: string
+  preparation_id: string
+  library_document_id: string
   position: number
   created_at: string
+  filename: string
+  kind: DocumentKind
+  content: string
 }
 
 export class LocalDatabase {
@@ -46,20 +59,26 @@ export class LocalDatabase {
         value TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS library_documents (
+        id TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS preparations (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         job_description TEXT NOT NULL DEFAULT '',
-        resume TEXT NOT NULL DEFAULT '',
+        resume_document_id TEXT REFERENCES library_documents(id) ON DELETE SET NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS preparation_documents (
         id TEXT PRIMARY KEY,
         preparation_id TEXT NOT NULL REFERENCES preparations(id) ON DELETE CASCADE,
-        filename TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        content TEXT NOT NULL,
+        library_document_id TEXT NOT NULL REFERENCES library_documents(id) ON DELETE CASCADE,
         position INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL
       );
@@ -106,6 +125,7 @@ export class LocalDatabase {
       CREATE INDEX IF NOT EXISTS idx_interview_utterance_edits_session
         ON interview_utterance_edits(session_id);
     `)
+    this.migrateToDocumentLibrary()
     const recoveredAt = new Date().toISOString()
     this.db.prepare(`
       UPDATE interview_sessions
@@ -119,6 +139,150 @@ export class LocalDatabase {
 
   close(): void {
     this.db.close()
+  }
+
+  private columnNames(table: string): string[] {
+    const rows = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+    return rows.map((row) => row.name)
+  }
+
+  /**
+   * 把「简历挂在档案上、文档正文复制在每个档案下」的旧结构，
+   * 迁移成「文档库存一份、档案按 id 引用」。
+   *
+   * 旧结构下海投 N 个岗位，同一份简历就在库里存了 N 份。
+   * 迁移时按正文去重，所以迁移完成的那一刻重复就消掉了。
+   * interview_* 那几张表不受影响。
+   */
+  private migrateToDocumentLibrary(): void {
+    const needsPreparationRebuild = this.columnNames('preparations').includes('resume')
+    const needsDocumentRebuild = this.columnNames('preparation_documents').includes('content')
+    if (!needsPreparationRebuild && !needsDocumentRebuild) return
+
+    // 重建会先 DROP 原表，所以数据要先整份读进内存
+    const legacyPreparations = needsPreparationRebuild
+      ? this.db
+          .prepare('SELECT id, name, job_description, resume, created_at, updated_at FROM preparations')
+          .all() as Array<{
+          id: string
+          name: string
+          job_description: string
+          resume: string
+          created_at: string
+          updated_at: string
+        }>
+      : []
+    const legacyDocuments = needsDocumentRebuild
+      ? this.db
+          .prepare(`
+            SELECT preparation_id, filename, kind, content, position, created_at
+            FROM preparation_documents
+            ORDER BY preparation_id, position
+          `)
+          .all() as Array<{
+          preparation_id: string
+          filename: string
+          kind: DocumentKind
+          content: string
+          position: number
+          created_at: string
+        }>
+      : []
+
+    const now = new Date().toISOString()
+    const libraryIdByContent = new Map<string, string>()
+    const pendingLibrary: Array<{ id: string; filename: string; kind: DocumentKind; content: string }> = []
+    const ensureLibraryDocument = (filename: string, kind: DocumentKind, content: string): string => {
+      const existing = libraryIdByContent.get(content)
+      if (existing) return existing
+      const id = randomUUID()
+      libraryIdByContent.set(content, id)
+      pendingLibrary.push({ id, filename, kind, content })
+      return id
+    }
+
+    const resumeIdByPreparation = new Map<string, string>()
+    for (const row of legacyPreparations) {
+      const content = row.resume.trim()
+      if (!content) continue
+      resumeIdByPreparation.set(row.id, ensureLibraryDocument('简历', 'text', content))
+    }
+    const links = legacyDocuments.map((row) => ({
+      preparationId: row.preparation_id,
+      libraryDocumentId: ensureLibraryDocument(row.filename, row.kind, row.content),
+      position: row.position,
+      createdAt: row.created_at,
+    }))
+
+    // 重建父子表时必须关掉外键，否则 DROP preparations 会级联删掉子表数据
+    this.db.exec('PRAGMA foreign_keys = OFF;')
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      const insertLibrary = this.db.prepare(`
+        INSERT INTO library_documents(id, filename, kind, content, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `)
+      for (const document of pendingLibrary) {
+        insertLibrary.run(document.id, document.filename, document.kind, document.content, now, now)
+      }
+
+      if (needsPreparationRebuild) {
+        this.db.exec(`
+          DROP TABLE preparations;
+          CREATE TABLE preparations (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            job_description TEXT NOT NULL DEFAULT '',
+            resume_document_id TEXT REFERENCES library_documents(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+        `)
+        const insertPreparation = this.db.prepare(`
+          INSERT INTO preparations(id, name, job_description, resume_document_id, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `)
+        for (const row of legacyPreparations) {
+          insertPreparation.run(
+            row.id,
+            row.name,
+            row.job_description,
+            resumeIdByPreparation.get(row.id) ?? null,
+            row.created_at,
+            row.updated_at,
+          )
+        }
+      }
+
+      if (needsDocumentRebuild) {
+        this.db.exec(`
+          DROP TABLE preparation_documents;
+          CREATE TABLE preparation_documents (
+            id TEXT PRIMARY KEY,
+            preparation_id TEXT NOT NULL REFERENCES preparations(id) ON DELETE CASCADE,
+            library_document_id TEXT NOT NULL REFERENCES library_documents(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_documents_preparation
+            ON preparation_documents(preparation_id, position);
+        `)
+        const insertLink = this.db.prepare(`
+          INSERT INTO preparation_documents(
+            id, preparation_id, library_document_id, position, created_at
+          ) VALUES (?, ?, ?, ?, ?)
+        `)
+        for (const link of links) {
+          insertLink.run(randomUUID(), link.preparationId, link.libraryDocumentId, link.position, link.createdAt)
+        }
+      }
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    } finally {
+      this.db.exec('PRAGMA foreign_keys = ON;')
+    }
   }
 
   getSetting(key: string): string | null {
@@ -140,7 +304,9 @@ export class LocalDatabase {
   listPreparations(): PreparationSummary[] {
     const rows = this.db
       .prepare(`
-        SELECT p.id, p.name, p.updated_at, COUNT(d.id) AS document_count
+        SELECT p.id, p.name, p.updated_at,
+          CASE WHEN p.resume_document_id IS NULL THEN 0 ELSE 1 END AS has_resume,
+          COUNT(d.id) AS document_count
         FROM preparations p
         LEFT JOIN preparation_documents d ON d.preparation_id = p.id
         GROUP BY p.id
@@ -150,6 +316,7 @@ export class LocalDatabase {
       id: string
       name: string
       updated_at: string
+      has_resume: number
       document_count: number
     }>
 
@@ -158,6 +325,7 @@ export class LocalDatabase {
       name: row.name,
       updatedAt: row.updated_at,
       documentCount: Number(row.document_count),
+      hasResume: Boolean(row.has_resume),
     }))
   }
 
@@ -168,18 +336,42 @@ export class LocalDatabase {
     if (!row) return null
 
     const documents = this.db
-      .prepare('SELECT * FROM preparation_documents WHERE preparation_id = ? ORDER BY position')
-      .all(id) as unknown as DocumentRow[]
+      .prepare(`
+        SELECT l.id AS link_id, l.preparation_id, l.library_document_id, l.position, l.created_at,
+          d.filename, d.kind, d.content
+        FROM preparation_documents l
+        JOIN library_documents d ON d.id = l.library_document_id
+        WHERE l.preparation_id = ?
+        ORDER BY l.position
+      `)
+      .all(id) as unknown as PreparationDocumentRow[]
 
-    return this.mapPreparation(row, documents)
+    return {
+      id: row.id,
+      name: row.name,
+      jobDescription: row.job_description,
+      resume: row.resume_document_id ? this.getLibraryDocument(row.resume_document_id) : null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      documents: documents.map((document) => ({
+        id: document.link_id,
+        preparationId: document.preparation_id,
+        libraryDocumentId: document.library_document_id,
+        filename: document.filename,
+        kind: document.kind,
+        content: document.content,
+        position: document.position,
+        createdAt: document.created_at,
+      })),
+    }
   }
 
   savePreparation(input: {
     id?: string
     name: string
     jobDescription: string
-    resume: string
-    documents: ExtractedDocument[]
+    resumeDocumentId: string | null
+    documentIds: string[]
   }): Preparation {
     const existing = input.id ? this.getPreparation(input.id) : null
     const id = existing?.id ?? randomUUID()
@@ -190,19 +382,19 @@ export class LocalDatabase {
       this.db
         .prepare(`
           INSERT INTO preparations(
-            id, name, job_description, resume, created_at, updated_at
+            id, name, job_description, resume_document_id, created_at, updated_at
           ) VALUES (?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             job_description = excluded.job_description,
-            resume = excluded.resume,
+            resume_document_id = excluded.resume_document_id,
             updated_at = excluded.updated_at
         `)
         .run(
           id,
           input.name.trim(),
           input.jobDescription,
-          input.resume,
+          input.resumeDocumentId,
           existing?.createdAt ?? now,
           now,
         )
@@ -210,11 +402,11 @@ export class LocalDatabase {
       this.db.prepare('DELETE FROM preparation_documents WHERE preparation_id = ?').run(id)
       const insert = this.db.prepare(`
         INSERT INTO preparation_documents(
-          id, preparation_id, filename, kind, content, position, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          id, preparation_id, library_document_id, position, created_at
+        ) VALUES (?, ?, ?, ?, ?)
       `)
-      input.documents.forEach((document, position) => {
-        insert.run(randomUUID(), id, document.filename, document.kind, document.content, position, now)
+      input.documentIds.forEach((libraryDocumentId, position) => {
+        insert.run(randomUUID(), id, libraryDocumentId, position, now)
       })
       this.db.exec('COMMIT')
     } catch (error) {
@@ -227,6 +419,74 @@ export class LocalDatabase {
 
   removePreparation(id: string): void {
     this.db.prepare('DELETE FROM preparations WHERE id = ?').run(id)
+  }
+
+  listLibraryDocuments(): LibraryDocumentSummary[] {
+    const rows = this.db
+      .prepare(`
+        SELECT id, filename, kind, updated_at, LENGTH(content) AS total_chars
+        FROM library_documents
+        ORDER BY updated_at DESC
+      `)
+      .all() as Array<{
+      id: string
+      filename: string
+      kind: DocumentKind
+      updated_at: string
+      total_chars: number
+    }>
+
+    return rows.map((row) => ({
+      id: row.id,
+      filename: row.filename,
+      kind: row.kind,
+      updatedAt: row.updated_at,
+      totalChars: Number(row.total_chars),
+    }))
+  }
+
+  getLibraryDocument(id: string): LibraryDocument | null {
+    const row = this.db.prepare('SELECT * FROM library_documents WHERE id = ?').get(id) as
+      | LibraryRow
+      | undefined
+    if (!row) return null
+    return {
+      id: row.id,
+      filename: row.filename,
+      kind: row.kind,
+      content: row.content,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }
+  }
+
+  /** 库里存全文，不做任何截断：超上限只是不进入提示词，由界面告知用户 */
+  addLibraryDocument(input: ExtractedDocument): LibraryDocument {
+    const id = randomUUID()
+    const now = new Date().toISOString()
+    this.db
+      .prepare(`
+        INSERT INTO library_documents(id, filename, kind, content, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `)
+      .run(id, input.filename, input.kind, input.content, now, now)
+    return this.getLibraryDocument(id) as LibraryDocument
+  }
+
+  renameLibraryDocument(id: string, filename: string): LibraryDocument {
+    const name = filename.trim()
+    if (!name) throw new Error('文档名称不能为空')
+    this.db
+      .prepare('UPDATE library_documents SET filename = ?, updated_at = ? WHERE id = ?')
+      .run(name, new Date().toISOString(), id)
+    const result = this.getLibraryDocument(id)
+    if (!result) throw new Error('文档不存在')
+    return result
+  }
+
+  /** 删除库文档：档案里的引用会被外键自动摘掉或清空 */
+  removeLibraryDocument(id: string): void {
+    this.db.prepare('DELETE FROM library_documents WHERE id = ?').run(id)
   }
 
   createInterviewSession(input: {
@@ -436,26 +696,6 @@ export class LocalDatabase {
       echoCleanupApplied: Boolean(row.echo_cleanup_applied),
       echoRemovedCount: Number(row.echo_removed_count ?? 0),
       echoChangedCount: Number(row.echo_changed_count ?? 0),
-    }
-  }
-
-  private mapPreparation(row: PreparationRow, documents: DocumentRow[]): Preparation {
-    return {
-      id: row.id,
-      name: row.name,
-      jobDescription: row.job_description,
-      resume: row.resume,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      documents: documents.map((document) => ({
-        id: document.id,
-        preparationId: document.preparation_id,
-        filename: document.filename,
-        kind: document.kind,
-        content: document.content,
-        position: document.position,
-        createdAt: document.created_at,
-      })),
     }
   }
 }

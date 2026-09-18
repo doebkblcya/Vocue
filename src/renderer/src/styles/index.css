@@ -301,23 +301,49 @@ button.titlebar-session:hover { background: var(--surface-hover); }
 .mode-picker > button { padding: 14px; }
 .mode-picker > button > svg { flex: 0 0 auto; color: var(--accent-text); }
 .archive-form > input { margin-bottom: 17px; }
-.archive-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.archive-columns textarea { min-height: 210px; }
-.archive-field-header { min-height: 25px; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-.inline-upload { display: inline-flex; align-items: center; gap: 4px; margin: -4px 0 4px; padding: 4px 7px; border-radius: 7px; color: var(--text-muted); background: var(--surface-raised); font-size: 10px; cursor: pointer; }
+.archive-field { display: grid; gap: 8px; margin-bottom: 18px; }
+.archive-field-head { min-height: 32px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.archive-field-head label { margin: 0; }
+.archive-field-actions { display: flex; align-items: center; gap: 8px; }
+.archive-picked { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-subtle); }
+.archive-picked.empty { border-style: dashed; }
+.archive-picked-copy { min-width: 0; flex: 1; display: grid; gap: 3px; }
+.archive-picked-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.archive-picked-copy small { color: var(--text-faint); font-size: 10px; line-height: 1.45; }
+.archive-picked-copy small.warn { color: var(--warning); }
+.inline-upload { display: inline-flex; align-items: center; gap: 4px; margin: 0; padding: 5px 8px; border-radius: 7px; color: var(--text-muted); background: var(--surface-raised); font-size: 10px; cursor: pointer; }
 .inline-upload:hover { color: var(--text); background: var(--surface-hover); }
 .inline-upload input { display: none; }
+
+/* 文档库 */
+.library-list { display: grid; gap: 8px; }
+.library-row { display: grid; grid-template-columns: 17px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-subtle); }
+.library-row:hover { border-color: rgba(160,205,50,.4); }
+.library-row-icon { display: grid; place-items: center; color: var(--text-muted); }
+.library-row-copy { min-width: 0; display: grid; gap: 4px; }
+.library-row-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.library-row-copy small { color: var(--text-faint); font-size: 11px; }
+.library-row-copy small.warn { color: var(--warning); }
+.library-row-remove { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 8px; color: var(--text-muted); background: transparent; }
+.library-row-remove:hover { color: var(--danger); background: var(--surface-hover); }
+.document-chips > span.warn { color: var(--warning); border-color: var(--warning-soft); }
+.picker-dialog { width: min(560px, 100%); }
+.picker-list { display: grid; gap: 6px; }
+.picker-row { width: 100%; display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 11px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 11px; text-align: left; background: var(--surface-subtle); }
+.picker-row:hover { background: var(--surface-hover); }
+.picker-row.selected { border-color: rgba(160,205,50,.55); background: var(--accent-soft); }
+.picker-check { width: 18px; height: 18px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.picker-row.selected .picker-check { border-color: transparent; background: var(--accent); box-shadow: inset 0 0 0 4px var(--accent-soft); }
+.picker-copy { min-width: 0; display: grid; gap: 3px; }
+.picker-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.picker-copy small { color: var(--text-faint); font-size: 10px; }
+.picker-copy small.warn { color: var(--warning); }
+.picker-empty { display: grid; justify-items: center; gap: 10px; padding: 30px 20px; color: var(--text-faint); font-size: 12px; line-height: 1.6; text-align: center; }
 .paste-confirm-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: var(--overlay); backdrop-filter: blur(8px); }
 .paste-confirm-card { width: min(390px, 100%); padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: 0 24px 80px var(--shadow-strong); }
 .paste-confirm-card h3 { margin: 0 0 8px; font-size: 17px; }
 .paste-confirm-card p { margin: 0 0 20px; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
 .paste-confirm-card > div { display: flex; justify-content: flex-end; gap: 8px; }
-.archive-documents-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin: 18px 0 9px; }
-.archive-documents-heading > div { display: grid; gap: 4px; }
-.archive-documents-heading strong { font-size: 12px; }
-.archive-documents-heading small { color: var(--text-faint); font-size: 10px; }
-.upload-button { height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; margin: 0; border: 1px solid var(--line); border-radius: 9px; color: var(--text-secondary); background: var(--surface-raised); cursor: pointer; }
-.upload-button input { display: none; }
 .document-chips { min-height: 40px; display: flex; flex-wrap: wrap; gap: 7px; }
 .document-chips > span { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px 0 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--text-muted); background: var(--surface-subtle); font-size: 12px; }
 .document-chips span.empty-chip { border-style: dashed; color: var(--text-faint); }
@@ -381,8 +407,6 @@ button.status-pill:hover .status-refresh-icon { opacity: .9; }
 @media (max-width: 700px) {
   .record-columns { grid-template-columns: 1fr; }
   .record-panel { min-height: 360px; }
-  .archive-columns { grid-template-columns: 1fr; }
-  .archive-columns textarea { min-height: 170px; }
   .preview-backdrop { padding: 12px; }
   .preview-dialog { padding: 18px; }
 }

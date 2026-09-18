@@ -2,7 +2,6 @@ import { extname } from 'node:path'
 import type { ExtractedDocument, PreparationDocument } from '../../shared/types'
 
 const MAX_BYTES = 5 * 1024 * 1024
-const MAX_CHARACTERS = 150_000
 
 export async function extractDocument(
   filename: string,
@@ -34,7 +33,8 @@ export async function extractDocument(
       : '文件内容为空'
     throw new Error(hint)
   }
-  if (content.length > MAX_CHARACTERS) content = content.slice(0, MAX_CHARACTERS)
+  // 这里不做任何截断：库里的文档始终是完整的。
+  // 超出上限的部分只是不进入提示词，由界面明确告知用户。
   return { filename, kind, content }
 }
 

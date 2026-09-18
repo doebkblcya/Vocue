@@ -1,8 +1,10 @@
 import { FileText, FolderPlus, Home, Play, Settings, Sparkles, Square } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import type { AudioMode, InterviewRecordSummary, PreparationSummary } from '../../../shared/types'
 import { useSessionState } from '../hooks'
+import { ArchiveCard } from './ArchiveCard'
 import { ArchiveEditorDialog } from './ArchiveEditorDialog'
+import { PageHeader } from './PageHeader'
 import { StartInterviewDialog } from './StartInterviewDialog'
 import { InterviewRecordView } from './InterviewRecordView'
 
@@ -10,11 +12,15 @@ interface Props {
   openSettings: () => void
 }
 
+type WorkspaceView = 'home' | 'archives'
+
 export function Workspace({ openSettings }: Props): React.JSX.Element {
   const [preparations, setPreparations] = useState<PreparationSummary[]>([])
   const [records, setRecords] = useState<InterviewRecordSummary[]>([])
+  const [view, setView] = useState<WorkspaceView>('home')
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null)
   const [startOpen, setStartOpen] = useState(false)
+  const [startPreparationId, setStartPreparationId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null | undefined>(undefined)
   const session = useSessionState()
 
@@ -36,6 +42,12 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
     void window.vocue.interviews.list().then(setRecords)
   }, [session.status, session.recordId])
 
+  /** 传 null 是通用模式；传了档案则预先选中该档案 */
+  const openStart = (preparationId: string | null = null): void => {
+    setStartPreparationId(preparationId)
+    setStartOpen(true)
+  }
+
   const start = async (preparationId: string | null, mode: AudioMode): Promise<void> => {
     // 失败时直接向上抛，由开始面试弹窗展示错误，这里不做空转再抛
     await window.vocue.session.start(preparationId, mode)
@@ -50,117 +62,212 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
     await refresh()
   }
 
+  const openView = (next: WorkspaceView): void => {
+    setView(next)
+    setSelectedRecordId(null)
+  }
+
   const isActive = session.status !== 'idle'
+  const recentPreparations = preparations.slice(0, 3)
 
   return (
     <main className="home-shell workspace-shell">
-      <aside className="interview-sidebar">
-        <div className="sidebar-brand drag-region">
-          <div className="brand-mark small"><Sparkles size={17} /></div>
+      {/* 全局顶栏：左边永久让给 macOS 交通灯，右边只放全局动作 */}
+      <header className="titlebar">
+        <div className="titlebar-brand">
+          <span className="brand-mark"><Sparkles size={15} /></span>
           <strong>Vocue</strong>
         </div>
-        <button className="sidebar-home" onClick={() => setSelectedRecordId(null)}>
-          <Home size={16} />工作台
-        </button>
-        <div className="sidebar-section-title"><span>面试记录</span><small>{records.length}</small></div>
-        <nav className="record-list">
-          {records.map((record) => (
-            <button
-              key={record.id}
-              className={selectedRecordId === record.id ? 'selected' : ''}
-              onClick={() => setSelectedRecordId(record.id)}
-            >
-              <span className={`record-dot record-dot-${record.status}`} />
-              <span><strong>{record.preparationName}</strong><small>{formatRecordDate(record.startedAt)} · {record.utteranceCount} 段</small></span>
-            </button>
-          ))}
-          {!records.length && <p className="sidebar-empty">完成第一场系统音频面试后，记录会出现在这里。</p>}
+        <div className="titlebar-actions">
+          {isActive && (
+            session.recordId ? (
+              <button
+                className="titlebar-session"
+                title="查看这场面试"
+                onClick={() => setSelectedRecordId(session.recordId)}
+              >
+                <span className="session-dot" />
+                <span>{session.preparationName}</span>
+              </button>
+            ) : (
+              <span className="titlebar-session">
+                <span className="session-dot" />
+                <span>{session.preparationName}</span>
+              </span>
+            )
+          )}
+          <button className="titlebar-icon-button" title="设置" onClick={openSettings}>
+            <Settings size={17} />
+          </button>
+        </div>
+      </header>
+
+      {/* 侧栏只有一种元素：行。图标 = 去处，圆点 = 一条记录 */}
+      <aside className="interview-sidebar">
+        <nav className="sidebar-nav">
+          <button
+            className={`sidebar-row ${!selectedRecordId && view === 'home' ? 'selected' : ''}`}
+            onClick={() => openView('home')}
+          >
+            <span className="row-icon"><Home size={16} /></span>
+            <strong>工作台</strong>
+          </button>
+          <button
+            className={`sidebar-row ${!selectedRecordId && view === 'archives' ? 'selected' : ''}`}
+            onClick={() => openView('archives')}
+          >
+            <span className="row-icon"><FileText size={16} /></span>
+            <strong>面试档案</strong>
+          </button>
         </nav>
+
+        <div className="sidebar-section-title"><span>面试记录</span><small>{records.length}</small></div>
+        <div className="record-list">
+          {groupRecords(records).map((group) => (
+            <Fragment key={group.label}>
+              <p className="sidebar-group-label">{group.label}</p>
+              {group.records.map((record) => (
+                <button
+                  key={record.id}
+                  className={`sidebar-row record-row ${selectedRecordId === record.id ? 'selected' : ''}`}
+                  onClick={() => setSelectedRecordId(record.id)}
+                >
+                  <span className={`record-dot record-dot-${record.status}`} />
+                  <span className="row-copy">
+                    <strong>{record.preparationName}</strong>
+                    <small>
+                      {record.status === 'recording'
+                        ? '记录中'
+                        : `${formatRecordDate(record.startedAt)} · ${record.utteranceCount} 段`}
+                    </small>
+                  </span>
+                </button>
+              ))}
+            </Fragment>
+          ))}
+          {!records.length && (
+            <p className="sidebar-empty">还没有面试记录。完成第一场面试后，时间轴会出现在这里。</p>
+          )}
+        </div>
       </aside>
 
       <section className="workspace-main">
-      <header className="home-header drag-region">
-        <div className="home-brand">
-          <p className="eyebrow">{selectedRecordId ? 'INTERVIEW RECORD' : 'WORKSPACE'}</p>
-          <strong>{selectedRecordId ? '面试记录' : '工作台'}</strong>
-        </div>
-        <button className="home-settings no-drag" title="设置" onClick={openSettings}>
-          <Settings size={18} />
-        </button>
-      </header>
+        {selectedRecordId ? (
+          <InterviewRecordView
+            recordId={selectedRecordId}
+            onBack={() => setSelectedRecordId(null)}
+            onChanged={refresh}
+          />
+        ) : view === 'home' ? (
+          <div className="page">
+            <PageHeader eyebrow="WORKSPACE" title="工作台" />
+            <div className="page-body">
+              <section className="session-card">
+                {isActive ? (
+                  <>
+                    <div className="session-card-copy">
+                      <span className="session-card-status"><span className="session-dot" />面试进行中</span>
+                      <strong>{session.preparationName}</strong>
+                      <small>回答窗口始终置顶；需要提词时唤出即可。</small>
+                    </div>
+                    <div className="session-card-actions">
+                      <button
+                        className="button primary"
+                        onClick={() => void window.vocue.window.openFloating()}
+                      >
+                        <Play size={16} fill="currentColor" />打开回答窗口
+                      </button>
+                      <button className="button secondary" onClick={() => void stop()}>
+                        <Square size={14} />结束面试
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="session-card-copy">
+                      <strong>开始一场面试</strong>
+                      <small>选择面试档案与录音方式，回答窗口会随后置顶出现。</small>
+                    </div>
+                    <div className="session-card-actions">
+                      <button className="button primary" onClick={() => openStart()}>
+                        <Play size={16} fill="currentColor" />开始面试
+                      </button>
+                    </div>
+                  </>
+                )}
+              </section>
 
-      {selectedRecordId ? (
-        <InterviewRecordView
-          recordId={selectedRecordId}
-          onBack={() => setSelectedRecordId(null)}
-          onChanged={refresh}
-        />
-      ) : <div className="home-content">
-        <section className="home-hero">
-          {isActive ? (
-            <>
-              <span className="home-session-status">面试进行中 · {session.preparationName}</span>
-              <div className="home-active-actions">
-                <button className="home-start-button" onClick={() => void window.vocue.window.openFloating()}>
-                  <Play size={18} fill="currentColor" />打开回答窗口
-                </button>
-                <button className="button secondary" onClick={() => void stop()}>
-                  <Square size={14} />结束面试
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <button className="home-start-button" onClick={() => setStartOpen(true)}>
-                <Play size={18} fill="currentColor" />开始面试
-              </button>
-              <span className="home-action-hint">选择面试档案和录音方式</span>
-            </>
-          )}
-        </section>
-
-        <section className="archive-section">
-          <header>
-            <div>
-              <h2><FileText size={17} />面试档案</h2>
+              <section className="archive-section">
+                <header>
+                  <h2><FileText size={17} />最近档案</h2>
+                  <button className="button ghost small" onClick={() => openView('archives')}>
+                    查看全部
+                  </button>
+                </header>
+                {recentPreparations.length ? (
+                  <div className="archive-grid">
+                    {recentPreparations.map((preparation) => (
+                      <ArchiveCard
+                        key={preparation.id}
+                        preparation={preparation}
+                        onEdit={() => setEditingId(preparation.id)}
+                        onStart={() => openStart(preparation.id)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <button className="archive-empty" onClick={() => setEditingId(null)}>
+                    <span className="archive-card-icon"><FolderPlus size={20} /></span>
+                    <span>
+                      <strong>创建第一份面试档案</strong>
+                      <small>添加 JD 和简历后，回答会更贴合你的经历。</small>
+                    </span>
+                  </button>
+                )}
+              </section>
             </div>
-            <button className="button secondary small" onClick={() => setEditingId(null)}>
-              <FolderPlus size={16} />新建档案
-            </button>
-          </header>
-
-          {preparations.length ? (
-            <div className="archive-grid">
-              {preparations.map((preparation) => (
-                <button
-                  key={preparation.id}
-                  className="archive-card"
-                  onClick={() => setEditingId(preparation.id)}
-                >
-                  <span className="archive-card-icon"><FileText size={19} /></span>
-                  <span className="archive-card-copy">
-                    <strong>{preparation.name}</strong>
-                    <small>
-                      {preparation.documentCount} 份补充资料 · {preparation.analyzed ? '已准备' : '待准备'}
-                    </small>
+          </div>
+        ) : (
+          <div className="page">
+            <PageHeader
+              eyebrow="ARCHIVES"
+              title="面试档案"
+              action={(
+                <button className="button primary small" onClick={() => setEditingId(null)}>
+                  <FolderPlus size={15} />新建档案
+                </button>
+              )}
+            />
+            <div className="page-body">
+              {preparations.length ? (
+                <div className="archive-grid">
+                  {preparations.map((preparation) => (
+                    <ArchiveCard
+                      key={preparation.id}
+                      preparation={preparation}
+                      onEdit={() => setEditingId(preparation.id)}
+                      onStart={() => openStart(preparation.id)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <button className="archive-empty" onClick={() => setEditingId(null)}>
+                  <span className="archive-card-icon"><FolderPlus size={20} /></span>
+                  <span>
+                    <strong>创建第一份面试档案</strong>
+                    <small>添加 JD 和简历后，回答会更贴合你的经历。</small>
                   </span>
-                  <time>{formatDate(preparation.updatedAt)}</time>
                 </button>
-              ))}
+              )}
             </div>
-          ) : (
-            <button className="archive-empty" onClick={() => setEditingId(null)}>
-              <span className="archive-card-icon"><FolderPlus size={20} /></span>
-              <span><strong>创建第一份面试档案</strong><small>添加 JD 和简历后，回答会更贴合你的经历。</small></span>
-            </button>
-          )}
-        </section>
-      </div>}
+          </div>
+        )}
       </section>
 
       {startOpen && (
         <StartInterviewDialog
           preparations={preparations}
+          initialPreparationId={startPreparationId}
           onClose={() => setStartOpen(false)}
           onStart={start}
         />
@@ -176,8 +283,28 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
   )
 }
 
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(value))
+interface RecordGroup {
+  label: string
+  records: InterviewRecordSummary[]
+}
+
+/** 记录会一直堆积，按时间分桶比一整条长列表好扫 */
+function groupRecords(records: InterviewRecordSummary[]): RecordGroup[] {
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const startOfWeek = startOfToday - 6 * 86_400_000
+  const groups: RecordGroup[] = [
+    { label: '今天', records: [] },
+    { label: '本周', records: [] },
+    { label: '更早', records: [] },
+  ]
+  for (const record of records) {
+    const startedAt = new Date(record.startedAt).getTime()
+    if (startedAt >= startOfToday) groups[0].records.push(record)
+    else if (startedAt >= startOfWeek) groups[1].records.push(record)
+    else groups[2].records.push(record)
+  }
+  return groups.filter((group) => group.records.length)
 }
 
 function formatRecordDate(value: string): string {

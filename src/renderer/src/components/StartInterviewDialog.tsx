@@ -5,16 +5,21 @@ import { getErrorMessage } from '../error-message'
 
 interface Props {
   preparations: PreparationSummary[]
+  /** 从某份档案的「开始」按钮进来时预选该档案 */
+  initialPreparationId?: string | null
   onClose: () => void
   onStart: (preparationId: string | null, mode: AudioMode) => Promise<void>
 }
 
 export function StartInterviewDialog({
   preparations,
+  initialPreparationId,
   onClose,
   onStart,
 }: Props): React.JSX.Element {
-  const [selectedId, setSelectedId] = useState<string | null>(preparations[0]?.id ?? null)
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialPreparationId ?? preparations[0]?.id ?? null,
+  )
   const [mode, setMode] = useState<AudioMode>('system')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')

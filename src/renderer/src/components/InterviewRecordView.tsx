@@ -1,9 +1,10 @@
-import { ArrowLeft, BrainCircuit, Clock3, Eraser, RefreshCw, Undo2 } from 'lucide-react'
+import { BrainCircuit, Clock3, Eraser, RefreshCw, Undo2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { InterviewRecord } from '../../../shared/types'
 import { getErrorMessage } from '../error-message'
+import { PageHeader } from './PageHeader'
 
 interface Props {
   recordId: string
@@ -78,9 +79,17 @@ export function InterviewRecordView({ recordId, onBack, onChanged }: Props): Rea
   if (loading) return <div className="loading compact">正在读取面试记录…</div>
   if (!record) {
     return (
-      <div className="record-missing">
-        <p>{error || '这份面试记录不存在。'}</p>
-        <button className="button secondary" onClick={onBack}>返回</button>
+      <div className="page">
+        <PageHeader
+          eyebrow="INTERVIEW RECORD"
+          title="面试记录"
+          onBack={onBack}
+          backTitle="返回工作台"
+        />
+        <div className="page-body record-missing">
+          <p>{error || '这份面试记录不存在。'}</p>
+          <button className="button secondary" onClick={onBack}>返回</button>
+        </div>
       </div>
     )
   }
@@ -90,28 +99,33 @@ export function InterviewRecordView({ recordId, onBack, onChanged }: Props): Rea
   const hasCandidateTranscript = record.utterances.some((utterance) => utterance.role === 'candidate')
 
   return (
-    <div className="record-view">
-      <header className="record-header">
-        <button className="record-back" onClick={onBack} title="返回工作台"><ArrowLeft size={17} /></button>
-        <div>
-          <h1>{record.preparationName}</h1>
-          <p>
-            {formatDateTime(record.startedAt)}
+    <div className="page">
+      <PageHeader
+        eyebrow="INTERVIEW RECORD"
+        title={record.preparationName}
+        onBack={onBack}
+        backTitle="返回工作台"
+        meta={(
+          <>
+            <span>{formatDateTime(record.startedAt)}</span>
             <span><Clock3 size={12} />{formatDuration(record.durationMs)}</span>
             <span>{record.utteranceCount} 段转写</span>
-          </p>
-        </div>
-        <span className={`record-status record-status-${record.status}`}>
-          {statusLabel(record.status)}
-        </span>
-      </header>
+          </>
+        )}
+        action={(
+          <span className={`record-status record-status-${record.status}`}>
+            {statusLabel(record.status)}
+          </span>
+        )}
+      />
 
-      {error && <div className="notice notice-error">{error}</div>}
-      {record.echoCleanupApplied && (
-        <div className="echo-cleanup-summary">
-          已清理外放回声：隐藏 {record.echoRemovedCount} 段，整理 {record.echoChangedCount} 段。原始记录仍然保留。
-        </div>
-      )}
+      <div className="page-body fill">
+        {error && <div className="notice notice-error">{error}</div>}
+        {record.echoCleanupApplied && (
+          <div className="echo-cleanup-summary">
+            已清理外放回声：隐藏 {record.echoRemovedCount} 段，整理 {record.echoChangedCount} 段。原始记录仍然保留。
+          </div>
+        )}
 
       <div className="record-columns">
         <section className="record-panel transcript-panel">
@@ -169,6 +183,7 @@ export function InterviewRecordView({ recordId, onBack, onChanged }: Props): Rea
           )}
           {record.reviewError && !error && <div className="notice notice-error">{record.reviewError}</div>}
         </section>
+      </div>
       </div>
     </div>
   )

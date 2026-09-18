@@ -11,7 +11,6 @@ import {
   Moon,
   Palette,
   Radio,
-  Sparkles,
   Sun,
   X,
 } from 'lucide-react'
@@ -142,7 +141,6 @@ export function SetupView({ onComplete, allowCancel = false }: Props): React.JSX
     <main className="setup-shell">
       <section className="setup-card">
         <header className="setup-header">
-          <div className="brand-mark"><Sparkles size={22} /></div>
           <div className="setup-heading">
             <p className="eyebrow">VOCUE</p>
             <h1>{allowCancel ? '设置' : '先完成一次简单设置'}</h1>

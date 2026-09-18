@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { GripHorizontal, Mic, Minus, Radio, RefreshCw, ScanLine, Square } from 'lucide-react'
+import { GripHorizontal, Headphones, Mic, Minus, RefreshCw, ScanLine, Square } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { microphoneCapture } from '../audio/microphone'
@@ -127,8 +127,8 @@ export function FloatingWindow(): React.JSX.Element {
 
   const statusContent = (
     <>
-      {session.mode === 'microphone' ? <Mic size={14} /> : <Radio size={14} />}
-      <span>{verifying ? '正在检测服务' : session.recordingTranscript ? '记录中' : status}</span>
+      {session.mode === 'microphone' ? <Mic size={14} /> : <Headphones size={14} />}
+      <span>{verifying ? '正在检测服务' : status}</span>
       {canVerify && <RefreshCw size={12} className="status-refresh-icon" />}
       {verifying && <RefreshCw size={12} className="spin" />}
     </>
@@ -140,7 +140,7 @@ export function FloatingWindow(): React.JSX.Element {
         <div className="floating-title"><GripHorizontal size={16} /><span>{session.preparationName || 'Vocue'}</span></div>
         <div className="floating-controls no-drag">
           <button title="最小化" onClick={() => void window.vocue.window.minimizeFloating()}><Minus size={15} /></button>
-          <button title="停止并关闭" onClick={() => void stopAndClose()}><Square size={13} /></button>
+          <button title="结束面试" onClick={() => void stopAndClose()}><Square size={13} /></button>
         </div>
       </header>
       <div className="floating-body">
@@ -219,12 +219,12 @@ export function FloatingWindow(): React.JSX.Element {
               >
                 <Mic size={19} />
                 {session.microphoneActive
-                  ? '松开结束录音'
+                  ? '松开结束'
                   : session.status === 'finalizing'
                     ? '正在识别刚才这句话…'
                     : session.generating
                       ? '打断并提问'
-                      : '按住录音'}
+                      : '按住说话'}
               </button>
             )}
           </div>

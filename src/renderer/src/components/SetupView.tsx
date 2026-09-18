@@ -9,6 +9,7 @@ import {
   LoaderCircle,
   Monitor,
   Moon,
+  Palette,
   Radio,
   Sparkles,
   Sun,
@@ -214,7 +215,7 @@ export function SetupView({ onComplete, allowCancel = false }: Props): React.JSX
             </section>
 
             <section className="theme-setting">
-              <span className="privacy-icon"><Sun size={18} /></span>
+              <span className="privacy-icon"><Palette size={18} /></span>
               <span className="privacy-copy">
                 <strong>外观主题</strong>
                 <small>默认跟随 macOS，也可以固定使用浅色或深色。</small>

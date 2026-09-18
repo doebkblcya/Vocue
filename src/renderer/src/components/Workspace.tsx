@@ -37,14 +37,11 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
   }, [session.status, session.recordId])
 
   const start = async (preparationId: string | null, mode: AudioMode): Promise<void> => {
-    try {
-      await window.vocue.session.start(preparationId, mode)
-      setStartOpen(false)
-      setSelectedRecordId(null)
-      await refresh()
-    } catch (error) {
-      throw error
-    }
+    // 失败时直接向上抛，由开始面试弹窗展示错误，这里不做空转再抛
+    await window.vocue.session.start(preparationId, mode)
+    setStartOpen(false)
+    setSelectedRecordId(null)
+    await refresh()
   }
 
   const stop = async (): Promise<void> => {
@@ -63,10 +60,7 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
           <strong>Vocue</strong>
         </div>
         <button className="sidebar-home" onClick={() => setSelectedRecordId(null)}>
-          <Home size={16} />首页
-        </button>
-        <button className="sidebar-start" disabled={isActive} onClick={() => setStartOpen(true)}>
-          <Play size={15} fill="currentColor" />开始面试
+          <Home size={16} />工作台
         </button>
         <div className="sidebar-section-title"><span>面试记录</span><small>{records.length}</small></div>
         <nav className="record-list">
@@ -82,13 +76,13 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
           ))}
           {!records.length && <p className="sidebar-empty">完成第一场系统音频面试后，记录会出现在这里。</p>}
         </nav>
-        <button className="sidebar-settings" onClick={openSettings}><Settings size={16} />设置</button>
       </aside>
 
       <section className="workspace-main">
       <header className="home-header drag-region">
         <div className="home-brand">
-          <strong>{selectedRecordId ? '面试记录' : '面试工作台'}</strong>
+          <p className="eyebrow">{selectedRecordId ? 'INTERVIEW RECORD' : 'WORKSPACE'}</p>
+          <strong>{selectedRecordId ? '面试记录' : '工作台'}</strong>
         </div>
         <button className="home-settings no-drag" title="设置" onClick={openSettings}>
           <Settings size={18} />
@@ -111,7 +105,7 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
                   <Play size={18} fill="currentColor" />打开回答窗口
                 </button>
                 <button className="button secondary" onClick={() => void stop()}>
-                  <Square size={14} />停止
+                  <Square size={14} />结束面试
                 </button>
               </div>
             </>

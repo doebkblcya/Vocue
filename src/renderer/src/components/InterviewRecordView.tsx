@@ -92,9 +92,8 @@ export function InterviewRecordView({ recordId, onBack, onChanged }: Props): Rea
   return (
     <div className="record-view">
       <header className="record-header">
-        <button className="record-back" onClick={onBack} title="返回首页"><ArrowLeft size={17} /></button>
+        <button className="record-back" onClick={onBack} title="返回工作台"><ArrowLeft size={17} /></button>
         <div>
-          <span className="eyebrow">INTERVIEW RECORD</span>
           <h1>{record.preparationName}</h1>
           <p>
             {formatDateTime(record.startedAt)}

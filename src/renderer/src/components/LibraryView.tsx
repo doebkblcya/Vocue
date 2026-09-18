@@ -1,4 +1,4 @@
-import { FileText, Trash2, Upload } from 'lucide-react'
+import { FileText, Pencil, Trash2, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { LibraryDocumentSummary } from '../../../shared/types'
 import { MATERIAL_TEXT_LIMIT, formatCharCount } from '../../../shared/limits'
@@ -16,6 +16,8 @@ export function LibraryView({ onChanged }: Props): React.JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
 
   const load = async (): Promise<void> => {
@@ -44,6 +46,24 @@ export function LibraryView({ onChanged }: Props): React.JSX.Element {
       await onChanged()
       // 上传时就把「有没有被截断」说清楚，不能等用户自己发现
       setNotice(extracted.map(describeUpload).join('；'))
+    } catch (reason) {
+      setError(getErrorMessage(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const commitRename = async (): Promise<void> => {
+    const id = renamingId
+    const filename = renameValue.trim()
+    setRenamingId(null)
+    if (!id || !filename) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await window.vocue.library.rename(id, filename)
+      await load()
     } catch (reason) {
       setError(getErrorMessage(reason))
     } finally {
@@ -102,21 +122,49 @@ export function LibraryView({ onChanged }: Props): React.JSX.Element {
           <div className="library-list">
             {documents.map((document) => {
               const usage = describeUsage(document.totalChars)
+              const renaming = renamingId === document.id
               return (
                 <article key={document.id} className="library-row">
                   <span className="library-row-icon"><FileText size={17} /></span>
                   <span className="library-row-copy">
-                    <strong>{document.filename}</strong>
+                    {renaming ? (
+                      <input
+                        className="library-rename-input"
+                        autoFocus
+                        value={renameValue}
+                        onChange={(event) => setRenameValue(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') void commitRename()
+                          if (event.key === 'Escape') setRenamingId(null)
+                        }}
+                        onBlur={() => void commitRename()}
+                      />
+                    ) : (
+                      <strong title={document.filename}>{document.filename}</strong>
+                    )}
                     <small className={usage.truncated ? 'warn' : ''}>{usage.text}</small>
                   </span>
-                  <button
-                    className="library-row-remove"
-                    title="从文档库删除"
-                    disabled={busy}
-                    onClick={() => void remove(document)}
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                  <div className="library-row-actions">
+                    <button
+                      className="library-row-button"
+                      title="重命名"
+                      disabled={busy || renaming}
+                      onClick={() => {
+                        setRenamingId(document.id)
+                        setRenameValue(document.filename)
+                      }}
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button
+                      className="library-row-button"
+                      title="从文档库删除"
+                      disabled={busy}
+                      onClick={() => void remove(document)}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </article>
               )
             })}

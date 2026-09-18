@@ -88,7 +88,6 @@ export function registerIpc(
       documentIds: string[]
     }) => {
       if (!input.name.trim()) throw new Error('请输入准备名称')
-      if (input.documentIds.length > 5) throw new Error('补充资料最多 5 份')
       return database.savePreparation(input)
     },
   )

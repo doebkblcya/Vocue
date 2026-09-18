@@ -324,8 +324,10 @@ button.titlebar-session:hover { background: var(--surface-hover); }
 .library-row-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .library-row-copy small { color: var(--text-faint); font-size: 11px; }
 .library-row-copy small.warn { color: var(--warning); }
-.library-row-remove { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 8px; color: var(--text-muted); background: transparent; }
-.library-row-remove:hover { color: var(--danger); background: var(--surface-hover); }
+.library-row-actions { display: flex; align-items: center; gap: 2px; }
+.library-row-button { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 8px; color: var(--text-muted); background: transparent; }
+.library-row-button:hover { color: var(--text); background: var(--surface-hover); }
+.library-rename-input { height: 30px; padding: 0 8px; border-radius: 7px; font-size: 12px; }
 .document-chips > span.warn { color: var(--warning); border-color: var(--warning-soft); }
 .picker-dialog { width: min(560px, 100%); }
 .picker-list { display: grid; gap: 6px; }

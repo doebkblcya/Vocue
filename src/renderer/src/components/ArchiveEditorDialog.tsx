@@ -5,8 +5,6 @@ import { describeUsage } from '../document-usage'
 import { getErrorMessage } from '../error-message'
 import { LibraryPickerDialog } from './LibraryPickerDialog'
 
-const MAX_DOCUMENTS = 5
-
 interface Draft {
   id?: string
   name: string
@@ -74,10 +72,6 @@ export function ArchiveEditorDialog({
   /** 直接在档案里上传：先入库，再把新文档挂到这份档案上 */
   const uploadDocuments = async (files: FileList | null): Promise<void> => {
     if (!files?.length) return
-    if (draft.documentIds.length + files.length > MAX_DOCUMENTS) {
-      setError(`补充资料最多 ${MAX_DOCUMENTS} 份`)
-      return
-    }
     setBusy(true)
     setError('')
     setNotice('')
@@ -244,7 +238,7 @@ export function ArchiveEditorDialog({
                   </span>
                   {resume && (
                     <button
-                      className="library-row-remove"
+                      className="library-row-button"
                       title="取消选择"
                       onClick={() => setDraft((current) => ({ ...current, resumeDocumentId: null }))}
                     >
@@ -256,7 +250,7 @@ export function ArchiveEditorDialog({
 
               <div className="archive-field">
                 <div className="archive-field-head">
-                  <label>补充资料（最多 {MAX_DOCUMENTS} 份）</label>
+                  <label>补充资料</label>
                   <div className="archive-field-actions">
                     <label className="inline-upload">
                       <Upload size={13} />上传新文件
@@ -336,7 +330,7 @@ export function ArchiveEditorDialog({
             if (picker === 'resume') {
               setDraft((current) => ({ ...current, resumeDocumentId: ids[0] ?? null }))
             } else {
-              setDraft((current) => ({ ...current, documentIds: ids.slice(0, MAX_DOCUMENTS) }))
+              setDraft((current) => ({ ...current, documentIds: ids }))
             }
             setPicker(null)
           }}

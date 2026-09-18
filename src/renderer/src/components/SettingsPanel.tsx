@@ -156,17 +156,13 @@ export function SettingsPanel({ variant, onComplete, onClose }: Props): React.JS
 
   const panel = (
     <>
+      {/* 有 footer 的弹窗不放 header 关闭叉：关闭入口只留一个，落在 footer 里 */}
       <header className="settings-header">
         <div>
           <p className="eyebrow">VOCUE</p>
           <h2 id="settings-title">{isDialog ? '设置' : '先完成一次简单设置'}</h2>
           <p className="muted">密钥使用 macOS 钥匙串加密后保存在本机，不经过任何自建服务器。</p>
         </div>
-        {isDialog && (
-          <button className="settings-close" title="关闭" onClick={onClose}>
-            <X size={18} />
-          </button>
-        )}
       </header>
 
       <div className="settings-content">

@@ -29,7 +29,7 @@ interface Props {
    * dialog：日常设置，覆盖在当前页之上，不卸载主界面。
    */
   variant: 'onboarding' | 'dialog'
-  /** 保存成功（onboarding）或关闭（dialog）后调用 */
+  /** onboarding 校验通过后、或 dialog 关闭后调用 */
   onComplete: () => void
   onClose?: () => void
 }
@@ -44,6 +44,13 @@ type Feedback = {
   tone: 'info' | 'success' | 'error'
 }
 
+type SecretKey = 'deepseekApiKey' | 'doubaoApiKey'
+
+/**
+ * 设置采用即时生效：没有「保存」这一步。
+ * 开关类改动点一下立刻落地，密钥改成输入框失焦时落地
+ * （边打字边写钥匙串既慢又容易半途失败）。
+ */
 export function SettingsPanel({ variant, onComplete, onClose }: Props): React.JSX.Element {
   const isDialog = variant === 'dialog'
   const [publicSettings, setPublicSettings] = useState<PublicSettings | null>(null)
@@ -66,57 +73,63 @@ export function SettingsPanel({ variant, onComplete, onClose }: Props): React.JS
     })
   }, [])
 
-  // 弹窗应该能被 Esc 关掉；保存过程中不关，避免把正在写的配置打断
-  useEffect(() => {
-    if (!isDialog || !onClose) return
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !busy) onClose()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isDialog, onClose, busy])
-
-  const update = (key: keyof AppSettings, value: string): void =>
-    setForm((current) => ({ ...current, [key]: value }))
-
-  const selectTheme = async (theme: ThemeMode): Promise<void> => {
-    setForm((current) => ({ ...current, theme }))
+  /** 乐观更新：先改界面，写失败再回滚并把原因摆出来 */
+  const applyPreference = async (patch: Partial<AppSettings>, rollback: Partial<AppSettings>): Promise<void> => {
+    setForm((current) => ({ ...current, ...patch }))
     try {
-      const saved = await window.vocue.settings.save({ theme })
-      setPublicSettings(saved)
+      setPublicSettings(await window.vocue.settings.save(patch))
     } catch (error) {
-      setFeedback({
-        text: getErrorMessage(error),
-        tone: 'error',
-      })
+      setForm((current) => ({ ...current, ...rollback }))
+      setFeedback({ text: getErrorMessage(error), tone: 'error' })
     }
   }
 
-  const save = async (): Promise<void> => {
-    setBusy(true)
-    setFeedback(null)
-    try {
-      const saved = await window.vocue.settings.save(form)
-      setPublicSettings(saved)
-      const ready = await window.vocue.settings.isReady()
-      if (!ready) throw new Error('请同时配置 DeepSeek 和豆包语音识别凭证')
-      setFeedback({ text: '配置已安全保存到本机', tone: 'success' })
-      onComplete()
-    } catch (error) {
-      setFeedback({
-        text: getErrorMessage(error),
-        tone: 'error',
-      })
-    } finally {
-      setBusy(false)
+  const selectTheme = (theme: ThemeMode): Promise<void> =>
+    applyPreference({ theme }, { theme: form.theme })
+
+  const selectThinkingEffort = (thinkingEffort: ThinkingEffort): Promise<void> =>
+    applyPreference({ thinkingEffort }, { thinkingEffort: form.thinkingEffort })
+
+  const toggleCaptureProtection = (): Promise<void> => {
+    const next = !form.hideFromScreenCapture
+    return applyPreference({ hideFromScreenCapture: next }, { hideFromScreenCapture: !next })
+  }
+
+  /**
+   * 密钥只在有内容时才写：留空表示「不修改」，与输入框占位符的承诺一致。
+   * 写成功后清空输入框，占位符随即变成「已保存」，就是落地成功的反馈。
+   */
+  const commitSecrets = async (only?: SecretKey): Promise<void> => {
+    const patch: Partial<AppSettings> = {}
+    if ((!only || only === 'deepseekApiKey') && form.deepseekApiKey) {
+      patch.deepseekApiKey = form.deepseekApiKey
     }
+    if ((!only || only === 'doubaoApiKey') && form.doubaoApiKey) {
+      patch.doubaoApiKey = form.doubaoApiKey
+    }
+    if (!patch.deepseekApiKey && !patch.doubaoApiKey) return
+
+    const saved = await window.vocue.settings.save(patch)
+    setPublicSettings(saved)
+    setForm((current) => ({
+      ...current,
+      deepseekApiKey: patch.deepseekApiKey ? '' : current.deepseekApiKey,
+      doubaoApiKey: patch.doubaoApiKey ? '' : current.doubaoApiKey,
+    }))
+  }
+
+  const blurSecret = (key: SecretKey): void => {
+    void commitSecrets(key).catch((error: unknown) => {
+      setFeedback({ text: getErrorMessage(error), tone: 'error' })
+    })
   }
 
   const test = async (kind: 'deepseek' | 'doubao'): Promise<void> => {
     setBusy(true)
     setFeedback({ text: '正在测试连接…', tone: 'info' })
     try {
-      await window.vocue.settings.save(form)
+      // 先把还没失焦的密钥落地，否则测的是上一次保存的值
+      await commitSecrets()
       const result =
         kind === 'deepseek'
           ? await window.vocue.settings.testDeepseek()
@@ -152,6 +165,34 @@ export function SettingsPanel({ variant, onComplete, onClose }: Props): React.JS
     }
   }
 
+  /** 首次配置仍然要拦一道：两项凭证齐了才放行 */
+  const finish = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      await commitSecrets()
+      if (!isDialog) {
+        const ready = await window.vocue.settings.isReady()
+        if (!ready) throw new Error('请同时配置 DeepSeek 和豆包语音识别凭证')
+      }
+      onComplete()
+    } catch (error) {
+      setFeedback({ text: getErrorMessage(error), tone: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Esc 走和「完成」同一条路，否则刚输入、还没失焦的密钥会被直接丢掉。
+  // 依赖里带上 form，保证监听器拿到的是最新一次输入。
+  useEffect(() => {
+    if (!isDialog || !onClose) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && !busy) void finish()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isDialog, onClose, busy, form])
+
   if (!publicSettings) return <div className="loading">正在读取本地配置…</div>
 
   const panel = (
@@ -174,7 +215,8 @@ export function SettingsPanel({ variant, onComplete, onClose }: Props): React.JS
               type="password"
               value={form.deepseekApiKey ?? ''}
               placeholder={publicSettings.hasDeepseekApiKey ? '已保存；留空则不修改' : 'sk-...'}
-              onChange={(event) => update('deepseekApiKey', event.target.value)}
+              onChange={(event) => setForm((current) => ({ ...current, deepseekApiKey: event.target.value }))}
+              onBlur={() => blurSecret('deepseekApiKey')}
             />
             <div className="config-summary">
               <span>官方接口</span><strong>deepseek-flash</strong>
@@ -190,7 +232,8 @@ export function SettingsPanel({ variant, onComplete, onClose }: Props): React.JS
               type="password"
               value={form.doubaoApiKey ?? ''}
               placeholder={publicSettings.hasDoubaoApiKey ? '已保存；留空则不修改' : '输入新版控制台的 API Key'}
-              onChange={(event) => update('doubaoApiKey', event.target.value)}
+              onChange={(event) => setForm((current) => ({ ...current, doubaoApiKey: event.target.value }))}
+              onBlur={() => blurSecret('doubaoApiKey')}
             />
             <div className="config-summary">
               <span>流式识别 2.0</span><strong>Seed ASR</strong><span>仅支持新版 API Key</span>
@@ -218,10 +261,7 @@ export function SettingsPanel({ variant, onComplete, onClose }: Props): React.JS
                   type="button"
                   className={`theme-option ${form.thinkingEffort === value ? 'selected' : ''}`}
                   aria-pressed={form.thinkingEffort === value}
-                  onClick={() => setForm((current) => ({
-                    ...current,
-                    thinkingEffort: value as ThinkingEffort,
-                  }))}
+                  onClick={() => void selectThinkingEffort(value)}
                 >
                   {label}
                 </button>
@@ -260,12 +300,7 @@ export function SettingsPanel({ variant, onComplete, onClose }: Props): React.JS
             className="privacy-setting"
             role="switch"
             aria-checked={Boolean(form.hideFromScreenCapture)}
-            onClick={() =>
-              setForm((current) => ({
-                ...current,
-                hideFromScreenCapture: !current.hideFromScreenCapture,
-              }))
-            }
+            onClick={() => void toggleCaptureProtection()}
           >
             <span className="privacy-icon"><EyeOff size={18} /></span>
             <span className="privacy-copy">
@@ -304,10 +339,8 @@ export function SettingsPanel({ variant, onComplete, onClose }: Props): React.JS
       </div>
 
       <footer className="settings-actions">
-        {/* 主题是即点即生效的，所以这里不能叫「取消」——它不会撤销已生效的改动 */}
-        {isDialog && <button className="button ghost" disabled={busy} onClick={onClose}>关闭</button>}
-        <button className="button primary" disabled={busy} onClick={() => void save()}>
-          {busy ? '处理中…' : isDialog ? '保存' : '保存并继续'}
+        <button className="button primary" disabled={busy} onClick={() => void finish()}>
+          {busy ? '处理中…' : isDialog ? '完成' : '开始使用'}
         </button>
       </footer>
     </>

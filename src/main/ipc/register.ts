@@ -18,6 +18,7 @@ import {
   minimizeFloatingWindow,
   openFloatingWindow,
   setCaptureProtection,
+  setInterviewMode,
   syncWindowThemeBackground,
 } from '../windows'
 
@@ -140,7 +141,9 @@ export function registerIpc(
     }
     try {
       await session.start(preparationId, mode)
+      // 先让浮窗出现，再收起主窗口：中间不会出现一个可见窗口都没有的瞬间
       openFloatingWindow()
+      setInterviewMode(true)
     } catch (error) {
       await session.stop()
       throw error

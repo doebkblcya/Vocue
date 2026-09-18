@@ -13,6 +13,8 @@ import type { CapturePreview, VisibilityTestResult } from '../shared/types'
 let mainWindow: BrowserWindow | null = null
 let floatingWindow: BrowserWindow | null = null
 let captureProtectionEnabled = false
+/** 面试态：主窗口退场，屏幕上只留置顶的提词浮窗 */
+let interviewMode = false
 
 const preloadPath = (): string => join(__dirname, '../preload/index.cjs')
 const MAIN_WINDOW_SIZE = { width: 1120, height: 760 }
@@ -95,6 +97,11 @@ export function openFloatingWindow(): BrowserWindow {
 
 export function showMainWindow(): BrowserWindow {
   const window = createMainWindow()
+  // 面试中不带工作台上台（点 Dock 图标也一样）：需要露面的永远是那一场的提词浮窗
+  if (interviewMode) {
+    openFloatingWindow()
+    return window
+  }
   if (window.isMinimized()) window.restore()
   window.show()
   window.focus()
@@ -102,12 +109,26 @@ export function showMainWindow(): BrowserWindow {
 }
 
 export function closeFloatingWindow(): void {
+  // 提词浮窗退场 = 面试结束，工作台连同它的档案管理和设置一起回到前台
+  setInterviewMode(false)
   floatingWindow?.close()
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.show()
     mainWindow.focus()
   }
+}
+
+/**
+ * 进入／退出面试态。
+ *
+ * 进入时把主窗口收起来：面试期间需要操作的只有提词浮窗，
+ * 工作台（档案管理、设置、再开一场）在这个场景下只会成为误操作的来源。
+ * 退出统一走 closeFloatingWindow()，由它把主窗口带回来。
+ */
+export function setInterviewMode(active: boolean): void {
+  interviewMode = active
+  if (active && mainWindow && !mainWindow.isDestroyed()) mainWindow.hide()
 }
 
 export function minimizeFloatingWindow(): void {

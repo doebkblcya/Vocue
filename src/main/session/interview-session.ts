@@ -297,7 +297,13 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
 
   answerScreenshot(dataUrl: string, displayName: string): void {
     if (!this.deepseek || this.state.status === 'idle') throw new Error('请先开始一场面试')
-    const question = '屏幕截图中的题目或代码'
+    /*
+     * 这一轮的请求里带着真实截图（见下面 userContent），但历史里只留这句占位符 ——
+     * 图片不进历史，否则每一轮都要重发一张图。
+     * 所以占位符必须说清「这里是一张图，内容你看不到」，
+     * 而不是像在描述图片内容，否则模型会误以为自己知道截图里是什么。
+     */
+    const question = '[此处是一张候选人截取的屏幕截图，图片内容不在对话历史中]'
     const text = [
       `请分析来自“${displayName}”的屏幕截图。`,
       '优先识别其中正在提问的面试题、代码、报错或图表,然后直接给出候选人可以使用的回答。',

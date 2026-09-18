@@ -1,5 +1,5 @@
 import { FileText, FolderPlus, Home, Play, Settings, Square } from 'lucide-react'
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { AudioMode, InterviewRecordSummary, PreparationSummary } from '../../../shared/types'
 import { useSessionState } from '../hooks'
 import { ArchiveCard } from './ArchiveCard'
@@ -41,6 +41,26 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
     if (session.status !== 'idle' && !session.recordId) return
     void window.vocue.interviews.list().then(setRecords)
   }, [session.status, session.recordId])
+
+  /**
+   * 结束面试后直接打开这一场的复盘页，省掉用户再去侧栏找一次。
+   * session.recordId 只在会话进行中存在（stop() 会把它清空），所以要提前记住。
+   * 按住说话模式不建记录，没有可跳转的目标，这里自然跳过。
+   */
+  const finishedRecordId = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (session.recordId) {
+      finishedRecordId.current = session.recordId
+      return
+    }
+    if (session.status !== 'idle' || !finishedRecordId.current) return
+    const recordId = finishedRecordId.current
+    finishedRecordId.current = null
+    setView('home')
+    setSelectedRecordId(recordId)
+    void refresh()
+  }, [session.recordId, session.status])
 
   /** 传 null 是通用模式；传了档案则预先选中该档案 */
   const openStart = (preparationId: string | null = null): void => {

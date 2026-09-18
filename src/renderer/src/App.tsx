@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { FloatingWindow } from './components/FloatingWindow'
-import { SetupView } from './components/SetupView'
+import { SettingsPanel } from './components/SettingsPanel'
 import { Workspace } from './components/Workspace'
 import type { ThemeMode } from '../../shared/types'
 
@@ -39,16 +39,19 @@ export function App(): React.JSX.Element {
 
   if (isFloating) return <FloatingWindow />
   if (ready === null) return <div className="loading">正在启动 Vocue…</div>
-  if (!ready || settingsOpen) {
-    return (
-      <SetupView
-        allowCancel={ready === true}
-        onComplete={() => {
-          setReady(true)
-          setSettingsOpen(false)
-        }}
-      />
-    )
-  }
-  return <Workspace openSettings={() => setSettingsOpen(true)} />
+  // 首次配置还没有主界面可回，必须是整页
+  if (!ready) return <SettingsPanel variant="onboarding" onComplete={() => setReady(true)} />
+  // 日常设置覆盖在主界面之上：Workspace 保持挂载，选中项和所在页面都不会丢
+  return (
+    <>
+      <Workspace openSettings={() => setSettingsOpen(true)} />
+      {settingsOpen && (
+        <SettingsPanel
+          variant="dialog"
+          onComplete={() => setSettingsOpen(false)}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
+    </>
+  )
 }

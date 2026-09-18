@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { LocalDatabase } from '../src/main/storage/database'
-import type { PreparationAnalysis } from '../src/shared/types'
 import { planEchoCleanup } from '../src/main/session/echo-cleanup'
 
 const databases: Array<{ database: LocalDatabase; directory: string }> = []
@@ -22,58 +21,44 @@ function createDatabase(): LocalDatabase {
   return database
 }
 
-const analysis: PreparationAnalysis = {
-  overview: '匹配',
-  keyRequirements: ['TypeScript'],
-  candidateStrengths: ['Electron'],
-  risks: [],
-  answerStrategy: ['先给结论'],
-}
-
 describe('LocalDatabase.savePreparation', () => {
-  it('只修改档案名称时保留已有分析', () => {
+  it('按 id 更新档案并整份替换补充资料', () => {
     const database = createDatabase()
     const created = database.savePreparation({
       name: '旧名称',
-      jobDescription: 'JD',
-      resume: '简历',
-      documents: [{ filename: 'notes.md', kind: 'markdown', content: '补充资料' }],
-    })
-    database.saveAnalysis(created.id, analysis, '旧提示词快照')
-
-    const renamed = database.savePreparation({
-      id: created.id,
-      name: '新名称',
-      jobDescription: 'JD',
-      resume: '简历',
-      documents: [{ filename: 'notes.md', kind: 'markdown', content: '补充资料' }],
-    })
-
-    expect(renamed.name).toBe('新名称')
-    expect(renamed.analysis).toEqual(analysis)
-    expect(renamed.systemPrompt).toBe('旧提示词快照')
-  })
-
-  it('修改面试资料时使旧分析失效', () => {
-    const database = createDatabase()
-    const created = database.savePreparation({
-      name: '档案',
       jobDescription: '旧 JD',
       resume: '简历',
-      documents: [],
+      documents: [{ filename: 'notes.md', kind: 'markdown', content: '补充资料' }],
     })
-    database.saveAnalysis(created.id, analysis, '旧提示词快照')
 
     const updated = database.savePreparation({
       id: created.id,
-      name: '档案',
+      name: '新名称',
       jobDescription: '新 JD',
       resume: '简历',
       documents: [],
     })
 
-    expect(updated.analysis).toBeNull()
-    expect(updated.systemPrompt).toBe('')
+    expect(updated.id).toBe(created.id)
+    expect(updated.name).toBe('新名称')
+    expect(updated.jobDescription).toBe('新 JD')
+    expect(updated.documents).toEqual([])
+    expect(updated.createdAt).toBe(created.createdAt)
+  })
+
+  it('列表返回每份档案的补充资料数量', () => {
+    const database = createDatabase()
+    database.savePreparation({
+      name: '档案',
+      jobDescription: '',
+      resume: '',
+      documents: [
+        { filename: 'a.md', kind: 'markdown', content: 'A' },
+        { filename: 'b.md', kind: 'markdown', content: 'B' },
+      ],
+    })
+
+    expect(database.listPreparations()[0]).toMatchObject({ name: '档案', documentCount: 2 })
   })
 })
 

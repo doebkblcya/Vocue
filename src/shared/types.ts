@@ -44,8 +44,6 @@ export interface Preparation {
   name: string
   jobDescription: string
   resume: string
-  analysis: PreparationAnalysis | null
-  systemPrompt: string
   createdAt: string
   updatedAt: string
   documents: PreparationDocument[]
@@ -56,15 +54,6 @@ export interface PreparationSummary {
   name: string
   updatedAt: string
   documentCount: number
-  analyzed: boolean
-}
-
-export interface PreparationAnalysis {
-  overview: string
-  keyRequirements: string[]
-  candidateStrengths: string[]
-  risks: string[]
-  answerStrategy: string[]
 }
 
 /**
@@ -185,7 +174,6 @@ export interface VocueApi {
       documents: ExtractedDocument[]
     }) => Promise<Preparation>
     remove: (id: string) => Promise<void>
-    analyze: (id: string) => Promise<Preparation>
   }
   documents: {
     extract: (filename: string, bytes: Uint8Array) => Promise<ExtractedDocument>

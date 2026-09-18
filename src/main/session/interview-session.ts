@@ -29,6 +29,23 @@ import { toUserMessage } from '../../shared/error-message'
  */
 const SEGMENT_SAFETY_TIMEOUT_MS = 8000
 
+/**
+ * 对话历史的字符预算上限。
+ *
+ * 刻意不用「保留最近 N 轮」：回答在设计上就很短（一轮约 300~400 字符），
+ * 一场长面试也就一两万字，真正的大头是 system prompt 里的简历和资料。
+ * 而且历史是只追加的，服务端前缀缓存会把它整段吃掉，多留几乎不花钱。
+ * 反过来，按轮数裁剪会改动消息数组开头，每轮都让缓存失效。
+ * 所以这里只留一个宽松的安全网，正常面试根本不会触发。
+ */
+const HISTORY_CHAR_BUDGET = 60_000
+
+/** 只统计文字长度：图片按 0 计，避免把 base64 算成几万字符 */
+function contentLength(content: MessageContent): number {
+  if (typeof content === 'string') return content.length
+  return content.reduce((sum, part) => sum + (part.type === 'text' ? part.text.length : 0), 0)
+}
+
 export class InterviewSession extends EventEmitter<{ state: [InterviewSessionState] }> {
   private state: InterviewSessionState = createInitialInterviewSessionState()
   private asr: DoubaoAsr | null = null
@@ -508,7 +525,7 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
     })
     const messages: ChatMessage[] = [
       { role: 'system', content: this.systemPrompt },
-      ...this.history.slice(-8),
+      ...this.history,
       {
         role: 'user',
         content: userContent,
@@ -535,7 +552,7 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
         { role: 'user', content: question },
         { role: 'assistant', content: completed },
       )
-      this.history = this.history.slice(-8)
+      this.trimHistory()
       const parsed = parseInterviewAnswer(completed)
       this.patchState({
         answer: completed,
@@ -548,6 +565,19 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
         this.answerAbort = null
         this.patchState({ generating: false })
       }
+    }
+  }
+
+  /**
+   * 只在历史超过字符预算时，从最早的一轮开始整对丢弃。
+   * 必须成对丢（问题 + 回答），否则 role 交替会被破坏，模型会看到连续两条 user。
+   */
+  private trimHistory(): void {
+    let total = this.history.reduce((sum, message) => sum + contentLength(message.content), 0)
+    while (total > HISTORY_CHAR_BUDGET && this.history.length > 2) {
+      const [question, answer] = this.history
+      total -= contentLength(question.content) + contentLength(answer.content)
+      this.history.splice(0, 2)
     }
   }
 

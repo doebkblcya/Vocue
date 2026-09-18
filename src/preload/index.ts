@@ -26,7 +26,6 @@ const api: VocueApi = {
       documents: ExtractedDocument[]
     }) => ipcRenderer.invoke('preparations:save', input),
     remove: (id: string) => ipcRenderer.invoke('preparations:remove', id),
-    analyze: (id: string) => ipcRenderer.invoke('preparations:analyze', id),
   },
   documents: {
     extract: (filename: string, bytes: Uint8Array) =>

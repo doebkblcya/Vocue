@@ -1,4 +1,4 @@
-import type { Preparation, PreparationAnalysis } from '../../shared/types'
+import type { Preparation } from '../../shared/types'
 
 const clip = (text: string, limit: number): string =>
   text.length <= limit ? text : `${text.slice(0, limit)}\n[内容已截断]`
@@ -10,44 +10,7 @@ const LIVE_ANSWER_FORMAT = `输出格式与长度：
 4. <detail> 不得换一种说法重复 <quick>。应直接补充最必要的原因、步骤、取舍或一个例子；能删掉而不影响回答的内容一律不写。
 5. 回答先给结论，使用自然、可直接说出口的句子，不写开场寒暄、总结陈词或多余的小标题。`
 
-export function buildAnalysisPrompt(preparation: Preparation): string {
-  const documents = preparation.documents
-    .map((document) => `### ${document.filename}\n${clip(document.content, 20_000)}`)
-    .join('\n\n')
-
-  return `请分析下面的面试准备资料。只输出一个 JSON 对象，不要 Markdown 代码块。字段必须是：
-{
-  "overview": "岗位和候选人的简要匹配概述",
-  "keyRequirements": ["岗位的关键要求"],
-  "candidateStrengths": ["候选人可重点表达的优势"],
-  "risks": ["可能被追问或需要谨慎处理的点"],
-  "answerStrategy": ["回答策略"]
-}
-
-## 岗位 JD
-${clip(preparation.jobDescription, 30_000)}
-
-## 简历
-${clip(preparation.resume, 40_000)}
-
-## 补充资料
-${documents || '无'}
-`
-}
-
-export function buildInterviewSystemPrompt(
-  preparation: Preparation,
-  analysis: PreparationAnalysis | null,
-): string {
-  const analysisText = analysis
-    ? `
-## 预分析
-- 概述：${analysis.overview}
-- 岗位重点：${analysis.keyRequirements.join('；')}
-- 候选人优势：${analysis.candidateStrengths.join('；')}
-- 风险点：${analysis.risks.join('；')}
-- 回答策略：${analysis.answerStrategy.join('；')}`
-    : ''
+export function buildInterviewSystemPrompt(preparation: Preparation): string {
   const documents = preparation.documents
     .map((document) => `### ${document.filename}\n${clip(document.content, 12_000)}`)
     .join('\n\n')
@@ -71,7 +34,6 @@ ${clip(preparation.jobDescription, 24_000)}
 
 ## 候选人简历
 ${clip(preparation.resume, 32_000)}
-${analysisText}
 
 ## 补充资料
 ${documents || '无'}
@@ -91,13 +53,12 @@ ${LIVE_ANSWER_FORMAT}
 }
 
 /**
- * 面试开始时始终使用当前代码里的最新模板重新组装提示词。
- * 数据库中的 systemPrompt 只作为旧数据兼容字段保留，不能作为运行时真相，
- * 否则模板更新后，已经分析过的档案会永久停留在旧版本。
+ * 面试开始时用当前模板现算系统提示词。
+ * 不做任何持久化快照：模板更新后，已有档案自动用上最新版本。
  */
 export function buildCurrentInterviewSystemPrompt(preparation: Preparation | null): string {
   return preparation
-    ? buildInterviewSystemPrompt(preparation, preparation.analysis)
+    ? buildInterviewSystemPrompt(preparation)
     : buildGenericInterviewSystemPrompt()
 }
 
@@ -137,20 +98,4 @@ export function parseInterviewAnswer(text: string): { summary: string; detail: s
 
 function stripPartialTag(text: string): string {
   return text.replace(/<\/?[a-z]*$/i, '')
-}
-
-export function parseAnalysis(text: string): PreparationAnalysis {
-  const start = text.indexOf('{')
-  const end = text.lastIndexOf('}')
-  if (start < 0 || end <= start) throw new Error('DeepSeek 返回的分析格式不正确')
-  const parsed = JSON.parse(text.slice(start, end + 1)) as Partial<PreparationAnalysis>
-  const array = (value: unknown): string[] =>
-    Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
-  return {
-    overview: typeof parsed.overview === 'string' ? parsed.overview : '',
-    keyRequirements: array(parsed.keyRequirements),
-    candidateStrengths: array(parsed.candidateStrengths),
-    risks: array(parsed.risks),
-    answerStrategy: array(parsed.answerStrategy),
-  }
 }

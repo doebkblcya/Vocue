@@ -18,9 +18,7 @@ export function ArchiveCard({ preparation, onEdit, onStart }: Props): React.JSX.
         <span className="archive-card-icon"><FileText size={19} /></span>
         <span className="archive-card-copy">
           <strong>{preparation.name}</strong>
-          <small>
-            {preparation.documentCount} 份补充资料 · {preparation.analyzed ? '已准备' : '待准备'}
-          </small>
+          <small>{preparation.documentCount} 份补充资料</small>
         </span>
         <time>{formatDate(preparation.updatedAt)}</time>
       </button>

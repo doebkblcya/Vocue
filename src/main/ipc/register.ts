@@ -3,7 +3,6 @@ import type { AppSettings, AudioMode, ExtractedDocument } from '../../shared/typ
 import { toUserMessage } from '../../shared/error-message'
 import { DeepSeekClient } from '../ai/deepseek-client'
 import { buildInterviewReviewPrompt } from '../ai/interview-review'
-import { buildAnalysisPrompt, buildInterviewSystemPrompt, parseAnalysis } from '../ai/prompt-builder'
 import { testDoubaoConnection } from '../asr/doubao-asr'
 import { extractDocument } from '../documents/extractor'
 import { InterviewSession } from '../session/interview-session'
@@ -40,21 +39,6 @@ export function registerIpc(
   settings: SettingsStore,
   session: InterviewSession,
 ): void {
-  const analyzePreparation = async (id: string) => {
-    const preparation = database.getPreparation(id)
-    if (!preparation) throw new Error('面试档案不存在')
-    const text = await new DeepSeekClient(settings.get()).complete(
-      [
-        { role: 'system', content: '你是严谨的技术面试准备助手。' },
-        { role: 'user', content: buildAnalysisPrompt(preparation) },
-      ],
-      { json: true },
-    )
-    const analysis = parseAnalysis(text)
-    const prompt = buildInterviewSystemPrompt(preparation, analysis)
-    return database.saveAnalysis(id, analysis, prompt)
-  }
-
   const handle = <T extends unknown[], R>(
     channel: string,
     listener: (sender: WebContents, ...args: T) => R | Promise<R>,
@@ -109,7 +93,6 @@ export function registerIpc(
     },
   )
   handle('preparations:remove', (_sender, id: string) => database.removePreparation(id))
-  handle('preparations:analyze', (_sender, id: string) => analyzePreparation(id))
 
   handle('documents:extract', (_sender, filename: string, bytes: Uint8Array) =>
     extractDocument(filename, bytes),
@@ -130,14 +113,8 @@ export function registerIpc(
 
   handle('session:start', async (_sender, preparationId: string | null, mode: AudioMode) => {
     if (!settings.isReady()) throw new Error('请先完成 API 配置')
-    if (preparationId) {
-      const preparation = database.getPreparation(preparationId)
-      if (!preparation) throw new Error('面试档案不存在')
-      // systemPrompt 是兼容旧数据库的快照字段；运行时会用最新模板现算。
-      // 因此只有缺少预分析时才需要发起昂贵的模型调用。
-      if (!preparation.analysis) {
-        await analyzePreparation(preparationId)
-      }
+    if (preparationId && !database.getPreparation(preparationId)) {
+      throw new Error('面试档案不存在')
     }
     try {
       await session.start(preparationId, mode)

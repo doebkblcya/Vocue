@@ -10,6 +10,17 @@
  */
 export const MATERIAL_TEXT_LIMIT = 100_000
 
+/**
+ * 一个档案的资料合计超过这个字数，就在界面上提醒一句。
+ *
+ * **这不是上限。** 超了照样全文发给模型——上下文有 1M token，装得下。
+ * 它只是一句提醒：资料越多，第一道题等得越久，回答也可能不够聚焦。
+ *
+ * 和 MATERIAL_TEXT_LIMIT 拦的不是一回事：那个拦「误传一整本书」，
+ * 这个拦「一份一份攒成了一本书」。正常用量（JD + 简历 + 几份笔记）在 3 万字上下。
+ */
+export const ARCHIVE_MATERIAL_WARN_LIMIT = 100_000
+
 export interface MaterialUsage {
   /** 全文长度 */
   total: number

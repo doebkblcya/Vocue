@@ -1,6 +1,7 @@
 import { FileText, Trash2, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { InterviewStage } from '../../../shared/stage'
+import { ARCHIVE_MATERIAL_WARN_LIMIT, formatCharCount } from '../../../shared/limits'
 import type { LibraryDocumentSummary } from '../../../shared/types'
 import { describeUsage } from '../document-usage'
 import { getErrorMessage } from '../error-message'
@@ -199,6 +200,16 @@ export function ArchiveEditorDialog({
   const resume = draft.resumeDocumentId ? summaryOf(draft.resumeDocumentId) : undefined
   const resumeUsage = resume ? describeUsage(resume.totalChars) : null
 
+  /**
+   * 这份档案一共要往提示词里塞多少字：JD + 简历 + 全部补充资料。
+   * 只用来提醒，不做拦截——超了仍然全文发给模型。
+   */
+  const totalChars =
+    draft.jobDescription.length +
+    (resume?.totalChars ?? 0) +
+    draft.documentIds.reduce((sum, id) => sum + (summaryOf(id)?.totalChars ?? 0), 0)
+  const tooMuchMaterial = totalChars > ARCHIVE_MATERIAL_WARN_LIMIT
+
   return (
     <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="archive-title">
       <section className="dialog-card archive-dialog">
@@ -364,6 +375,12 @@ export function ArchiveEditorDialog({
                   上传的文档会自动收进「文档库 · 文档」；「从文档库选择」里只列文档。
                 </p>
               </div>
+
+              {tooMuchMaterial && (
+                <div className="notice notice-warning">
+                  这份档案的资料合计 {formatCharCount(totalChars)} 字。资料越多，第一道题等得越久，回答也可能不够聚焦。
+                </div>
+              )}
 
               {notice && <div className="notice notice-success">{notice}</div>}
               {error && <div className="notice notice-error" role="alert">{error}</div>}

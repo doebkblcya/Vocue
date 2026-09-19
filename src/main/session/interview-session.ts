@@ -17,6 +17,7 @@ import {
 } from '../asr/doubao-asr'
 import { SystemAudioProcessor } from '../audio/system-audio-processor'
 import { SystemAudioCapture } from '../audio/system-audio-capture'
+import type { RecordingIssue } from '../../shared/recording-issue'
 import { log } from '../log'
 import { LocalDatabase } from '../storage/database'
 import { SettingsStore } from '../storage/settings'
@@ -68,7 +69,7 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
   private readonly candidatePendingAudio: Buffer[] = []
   private activeRecordId: string | null = null
   private recordStartedAt = 0
-  private recordIncomplete = false
+  private recordIssue: RecordingIssue | null = null
   private stopping = false
   private interviewerFinishResolve: (() => void) | null = null
   private candidateFinishResolve: (() => void) | null = null
@@ -126,7 +127,7 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
         })
         this.activeRecordId = record.id
         this.recordStartedAt = Date.now()
-        this.recordIncomplete = false
+        this.recordIssue = null
         this.lastRecorded.clear()
         this.patchState({
           status: 'listening',
@@ -194,18 +195,27 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
     }
   }
 
+  /**
+   * 记下第一个触发点就够了：后面的通常都是它的连锁反应
+   * （候选人音频一积压，紧接着必然是一次重连），根因比罗列清单有用。
+   */
+  private markIncomplete(issue: RecordingIssue): void {
+    this.recordIssue ??= issue
+  }
+
   async stop(): Promise<void> {
     this.stopping = true
     await this.stopResources(true)
     if (this.activeRecordId) {
       this.database.finishInterviewSession(
         this.activeRecordId,
-        this.recordIncomplete ? 'incomplete' : 'ready',
+        this.recordIssue ? 'incomplete' : 'ready',
+        this.recordIssue,
       )
     }
     this.activeRecordId = null
     this.recordStartedAt = 0
-    this.recordIncomplete = false
+    this.recordIssue = null
     this.lastRecorded.clear()
     this.stopping = false
     this.patchState({
@@ -275,7 +285,7 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
         // 16kHz / 16-bit / mono，每包约 100ms；最多保留最近 60 秒。
         if (this.candidatePendingAudio.length > 600) {
           this.candidatePendingAudio.shift()
-          this.recordIncomplete = true
+          this.markIncomplete('candidate_backlog')
         }
         return
       }
@@ -291,7 +301,7 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
 
   reportRecordingProblem(message: string): void {
     if (!this.activeRecordId || this.state.mode !== 'system') return
-    this.recordIncomplete = true
+    this.markIncomplete('microphone_unavailable')
     this.patchState({ error: toUserMessage(message, '麦克风转写不可用，本次记录可能不完整') })
   }
 
@@ -370,7 +380,7 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
           return
         }
         if (state === 'reconnecting') {
-          if (this.state.mode === 'system') this.recordIncomplete = true
+          if (this.state.mode === 'system') this.markIncomplete('asr_reconnecting')
           if (this.segmentActive) {
             // 录音中掉线：立刻退出录音态，避免「显示在录音、实际没在识别」
             this.segmentActive = false
@@ -430,7 +440,7 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
           return
         }
         if (state === 'error') {
-          this.recordIncomplete = true
+          this.markIncomplete('candidate_asr_error')
           this.patchState({ error: toUserMessage(message, '候选人语音转写出现问题') })
         }
       },
@@ -457,7 +467,7 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
       this.patchState({ status: 'reconnecting', error: `系统音频正在第 ${attempt} 次重连` })
     })
     capture.on('error', (error) => {
-      this.recordIncomplete = true
+      this.markIncomplete('system_audio_failed')
       this.patchState({ status: 'error', error: toUserMessage(error, '系统音频捕获失败，请重试') })
     })
     await capture.start()
@@ -602,7 +612,7 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
         this.finishAsr(this.asr, 'interviewer'),
         this.finishAsr(this.candidateAsr, 'candidate'),
       ])
-      if (finished.some((value) => !value)) this.recordIncomplete = true
+      if (finished.some((value) => !value)) this.markIncomplete('transcript_finalize_failed')
     }
     this.asr?.disconnect()
     this.asr = null

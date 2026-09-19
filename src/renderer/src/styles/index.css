@@ -254,6 +254,7 @@ button.titlebar-session:hover { background: var(--surface-hover); }
 .record-status-recording, .record-status-reviewing { color: var(--accent-text); background: var(--accent-soft); }
 .record-status-ready { color: var(--warning); background: var(--warning-soft); }
 .record-status-incomplete { color: var(--error-text); background: rgba(220,80,76,.1); }
+.record-header-actions { display: flex; align-items: center; gap: 10px; }
 .record-columns { flex: 1; display: grid; grid-template-columns: minmax(280px, .9fr) minmax(340px, 1.1fr); gap: 14px; }
 .record-panel { min-height: 420px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line); border-radius: 15px; background: var(--card-surface); }
 .record-panel > header { flex: 0 0 auto; min-height: 60px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 16px; border-bottom: 1px solid var(--line); }

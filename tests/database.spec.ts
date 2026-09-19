@@ -463,6 +463,96 @@ describe('LocalDatabase 面试记录', () => {
 
     expect(recovered.getInterviewSession(record.id)?.status).toBe('incomplete')
     expect(recovered.getInterviewSession(record.id)?.endedAt).not.toBeNull()
+    // 启动恢复是「应用没走到收尾」，原因应当记成 app_terminated
+    expect(recovered.getInterviewSession(record.id)?.incompleteReason).toBe('app_terminated')
+  })
+
+  it('落库时记下被判为不完整的原因', () => {
+    const database = createDatabase()
+    const record = database.createInterviewSession({ preparationId: null, preparationName: '掉线' })
+
+    database.finishInterviewSession(record.id, 'incomplete', 'asr_reconnecting')
+
+    expect(database.getInterviewSession(record.id)).toMatchObject({
+      status: 'incomplete',
+      incompleteReason: 'asr_reconnecting',
+    })
+    expect(database.listInterviewSessions()[0].incompleteReason).toBe('asr_reconnecting')
+  })
+
+  it('正常结束时不留下原因', () => {
+    const database = createDatabase()
+    const record = database.createInterviewSession({ preparationId: null, preparationName: '正常' })
+
+    database.finishInterviewSession(record.id, 'ready', 'asr_reconnecting')
+
+    // 状态正常就不该带原因，否则界面会把「曾经出过问题」带到正常记录上
+    expect(database.getInterviewSession(record.id)?.incompleteReason).toBeNull()
+  })
+
+  it('删除记录会连转写一起带走', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'vocue-remove-record-test-'))
+    const path = join(directory, 'vocue.sqlite3')
+    const database = new LocalDatabase(path)
+    databases.push({ database, directory })
+
+    const record = database.createInterviewSession({ preparationId: null, preparationName: '待删' })
+    database.appendInterviewUtterance({
+      sessionId: record.id,
+      role: 'interviewer',
+      text: '请介绍一下自己。',
+      startMs: 0,
+      endMs: 1000,
+    })
+
+    database.removeInterviewSession(record.id)
+
+    expect(database.getInterviewSession(record.id)).toBeNull()
+    expect(database.listInterviewSessions()).toEqual([])
+
+    // 子表不能留孤儿，直接查库确认级联删掉了
+    const raw = new DatabaseSync(path)
+    const row = raw
+      .prepare('SELECT COUNT(*) AS total FROM interview_utterances WHERE session_id = ?')
+      .get(record.id) as { total: number }
+    raw.close()
+    expect(Number(row.total)).toBe(0)
+  })
+
+  it('给老记录补 incomplete_reason 列，历史值保持为空', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'vocue-reason-migration-test-'))
+    const path = join(directory, 'vocue.sqlite3')
+
+    // 上一版的记录表：还没有 incomplete_reason 列
+    const older = new DatabaseSync(path)
+    older.exec(`
+      CREATE TABLE interview_sessions (
+        id TEXT PRIMARY KEY,
+        preparation_id TEXT,
+        preparation_name TEXT NOT NULL,
+        status TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        duration_ms INTEGER NOT NULL DEFAULT 0,
+        review_markdown TEXT NOT NULL DEFAULT '',
+        review_error TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO interview_sessions VALUES
+        ('s1', NULL, '老记录', 'incomplete', '2026-01-01', '2026-01-01', 1000, '', '', '2026-01-01', '2026-01-01');
+    `)
+    older.close()
+
+    const database = new LocalDatabase(path)
+    databases.push({ database, directory })
+
+    // 当时为什么断的已无从考证：保持 null，界面给笼统说法，不编一个具体的
+    expect(database.getInterviewSession('s1')).toMatchObject({
+      status: 'incomplete',
+      incompleteReason: null,
+    })
+    expect(database.listInterviewSessions()[0].incompleteReason).toBeNull()
   })
 
   it('清理结果独立保存并且可以撤销，不修改原始转写', () => {

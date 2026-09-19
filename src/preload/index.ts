@@ -78,6 +78,7 @@ const api: VocueApi = {
     cleanupEcho: (id: string) => ipcRenderer.invoke('interviews:cleanup-echo', id),
     undoEchoCleanup: (id: string) => ipcRenderer.invoke('interviews:undo-echo-cleanup', id),
     generateReview: (id: string) => ipcRenderer.invoke('interviews:generate-review', id),
+    remove: (id: string) => ipcRenderer.invoke('interviews:remove', id),
   },
   window: {
     openFloating: () => ipcRenderer.invoke('window:open-floating'),

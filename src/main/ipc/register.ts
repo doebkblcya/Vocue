@@ -115,6 +115,8 @@ export function registerIpc(
   )
   handle('library:remove', (_sender, id: string) => database.removeLibraryDocument(id))
 
+  handle('interviews:remove', (_sender, id: string) => database.removeInterviewSession(id))
+
   handle('documents:extract', (_sender, filename: string, bytes: Uint8Array) =>
     extractDocument(filename, bytes),
   )

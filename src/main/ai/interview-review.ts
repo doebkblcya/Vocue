@@ -1,5 +1,6 @@
 import type { InterviewRecord, Preparation } from '../../shared/types'
 import { usableMaterial } from '../../shared/limits'
+import { formatRecordingIssue } from '../../shared/recording-issue'
 
 export function buildInterviewReviewPrompt(
   record: InterviewRecord,
@@ -33,7 +34,7 @@ export function buildInterviewReviewPrompt(
         ].join('\n')
       : '岗位档案：通用面试（没有额外 JD 或简历）',
     record.status === 'incomplete'
-      ? '记录完整性：本次转写曾发生中断，结论中请明确提醒用户复核缺失处。'
+      ? `记录完整性：${formatRecordingIssue(record.incompleteReason)}，结论中请明确提醒用户复核缺失处。`
       : '记录完整性：正常结束。',
     `面试转写：\n${transcript}`,
   ].join('\n\n')

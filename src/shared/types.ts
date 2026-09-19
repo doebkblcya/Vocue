@@ -1,4 +1,5 @@
 import type { InterviewStage } from './stage'
+import type { RecordingIssue } from './recording-issue'
 
 export type AudioMode = 'system' | 'microphone'
 export type ThemeMode = 'system' | 'light' | 'dark'
@@ -169,6 +170,8 @@ export interface InterviewRecordSummary {
   preparationId: string | null
   preparationName: string
   status: InterviewRecordStatus
+  /** 只有 status 为 incomplete 时有意义；老记录为 null */
+  incompleteReason: RecordingIssue | null
   startedAt: string
   endedAt: string | null
   durationMs: number
@@ -244,6 +247,7 @@ export interface VocueApi {
     cleanupEcho: (id: string) => Promise<InterviewRecord>
     undoEchoCleanup: (id: string) => Promise<InterviewRecord>
     generateReview: (id: string) => Promise<InterviewRecord>
+    remove: (id: string) => Promise<void>
   }
   window: {
     openFloating: () => Promise<void>

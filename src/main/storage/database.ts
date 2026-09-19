@@ -16,6 +16,7 @@ import type {
   InterviewRole,
 } from '../../shared/types'
 import type { EchoCleanupPlan } from '../session/echo-cleanup'
+import type { RecordingIssue } from '../../shared/recording-issue'
 
 interface PreparationRow {
   id: string
@@ -94,6 +95,7 @@ export class LocalDatabase {
         preparation_id TEXT,
         preparation_name TEXT NOT NULL,
         status TEXT NOT NULL,
+        incomplete_reason TEXT,
         started_at TEXT NOT NULL,
         ended_at TEXT,
         duration_ms INTEGER NOT NULL DEFAULT 0,
@@ -133,10 +135,12 @@ export class LocalDatabase {
     this.migrateToDocumentLibrary()
     this.migrateLibraryCategories()
     this.migratePreparationStage()
+    this.migrateIncompleteReason()
     const recoveredAt = new Date().toISOString()
     this.db.prepare(`
       UPDATE interview_sessions
       SET status = 'incomplete',
+          incomplete_reason = COALESCE(incomplete_reason, 'app_terminated'),
           ended_at = COALESCE(ended_at, ?),
           duration_ms = MAX(0, CAST((julianday(?) - julianday(started_at)) * 86400000 AS INTEGER)),
           updated_at = ?
@@ -337,6 +341,15 @@ export class LocalDatabase {
   private migratePreparationStage(): void {
     if (this.columnNames('preparations').includes('stage')) return
     this.db.exec('ALTER TABLE preparations ADD COLUMN stage INTEGER')
+  }
+
+  /**
+   * 「不完整」的原因是后加的列。老记录保持 NULL——
+   * 当时到底为什么断的已经无从考证，界面上给笼统说法，不编一个具体的。
+   */
+  private migrateIncompleteReason(): void {
+    if (this.columnNames('interview_sessions').includes('incomplete_reason')) return
+    this.db.exec('ALTER TABLE interview_sessions ADD COLUMN incomplete_reason TEXT')
   }
 
   getSetting(key: string): string | null {
@@ -609,7 +622,11 @@ export class LocalDatabase {
     )
   }
 
-  finishInterviewSession(id: string, status: 'ready' | 'incomplete' = 'ready'): void {
+  finishInterviewSession(
+    id: string,
+    status: 'ready' | 'incomplete' = 'ready',
+    issue: RecordingIssue | null = null,
+  ): void {
     const row = this.db.prepare('SELECT started_at FROM interview_sessions WHERE id = ?').get(id) as
       | { started_at: string }
       | undefined
@@ -618,9 +635,14 @@ export class LocalDatabase {
     const durationMs = Math.max(0, endedAt.getTime() - new Date(row.started_at).getTime())
     this.db.prepare(`
       UPDATE interview_sessions
-      SET status = ?, ended_at = ?, duration_ms = ?, updated_at = ?
+      SET status = ?, incomplete_reason = ?, ended_at = ?, duration_ms = ?, updated_at = ?
       WHERE id = ?
-    `).run(status, endedAt.toISOString(), durationMs, endedAt.toISOString(), id)
+    `).run(status, status === 'incomplete' ? issue : null, endedAt.toISOString(), durationMs, endedAt.toISOString(), id)
+  }
+
+  /** 删除一场面试记录：utterance、清理结果、清理记录都由外键级联带走 */
+  removeInterviewSession(id: string): void {
+    this.db.prepare('DELETE FROM interview_sessions WHERE id = ?').run(id)
   }
 
   listInterviewSessions(): InterviewRecordSummary[] {
@@ -767,6 +789,7 @@ export class LocalDatabase {
       preparationId: row.preparation_id ? String(row.preparation_id) : null,
       preparationName: String(row.preparation_name),
       status: row.status as InterviewRecordStatus,
+      incompleteReason: (row.incomplete_reason as RecordingIssue | null) ?? null,
       startedAt: String(row.started_at),
       endedAt: row.ended_at ? String(row.ended_at) : null,
       durationMs: Number(row.duration_ms),

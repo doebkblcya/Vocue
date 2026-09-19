@@ -1,9 +1,11 @@
-import { BrainCircuit, Clock3, Eraser, RefreshCw, Undo2 } from 'lucide-react'
+import { BrainCircuit, Clock3, Eraser, RefreshCw, Trash2, TriangleAlert, Undo2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { formatRecordingIssue } from '../../../shared/recording-issue'
 import type { InterviewRecord } from '../../../shared/types'
 import { getErrorMessage } from '../error-message'
+import { ConfirmDialog } from './ConfirmDialog'
 import { PageHeader } from './PageHeader'
 
 interface Props {
@@ -17,6 +19,8 @@ export function InterviewRecordView({ recordId, onBack, onChanged }: Props): Rea
   const [loading, setLoading] = useState(true)
   const [reviewing, setReviewing] = useState(false)
   const [cleaning, setCleaning] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -77,6 +81,20 @@ export function InterviewRecordView({ recordId, onBack, onChanged }: Props): Rea
   }
 
   if (loading) return <div className="loading compact">正在读取面试记录…</div>
+  const remove = async (): Promise<void> => {
+    setConfirmDelete(false)
+    setDeleting(true)
+    setError('')
+    try {
+      await window.vocue.interviews.remove(recordId)
+      await onChanged()
+      onBack()
+    } catch (reason) {
+      setError(getErrorMessage(reason))
+      setDeleting(false)
+    }
+  }
+
   if (!record) {
     return (
       <div className="page">
@@ -113,14 +131,34 @@ export function InterviewRecordView({ recordId, onBack, onChanged }: Props): Rea
           </>
         )}
         action={(
-          <span className={`record-status record-status-${record.status}`}>
-            {statusLabel(record.status)}
-          </span>
+          <div className="record-header-actions">
+            <span className={`record-status record-status-${record.status}`}>
+              {statusLabel(record.status)}
+            </span>
+            {!isRunning && (
+              <button
+                className="button ghost small danger-text"
+                disabled={deleting}
+                onClick={() => setConfirmDelete(true)}
+              >
+                <Trash2 size={14} />删除记录
+              </button>
+            )}
+          </div>
         )}
       />
 
       <div className="page-body fill">
         {error && <div className="notice notice-error">{error}</div>}
+        {record.status === 'incomplete' && (
+          <div className="notice notice-error">
+            <TriangleAlert size={15} />
+            <span>
+              记录不完整：{formatRecordingIssue(record.incompleteReason)}。转写可能有缺漏，
+              复盘结论请对照实际情况复核。
+            </span>
+          </div>
+        )}
         {record.echoCleanupApplied && (
           <div className="echo-cleanup-summary">
             已清理外放回声：隐藏 {record.echoRemovedCount} 段，整理 {record.echoChangedCount} 段。原始记录仍然保留。
@@ -185,6 +223,21 @@ export function InterviewRecordView({ recordId, onBack, onChanged }: Props): Rea
         </section>
       </div>
       </div>
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="删除这条面试记录？"
+          description={(
+            <>
+              「<strong>{record.preparationName}</strong>」的转写、外放清理结果和 AI 复盘
+              都会一起删除，无法恢复。
+            </>
+          )}
+          confirmLabel="删除记录"
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={() => void remove()}
+        />
+      )}
     </div>
   )
 }

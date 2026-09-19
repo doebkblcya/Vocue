@@ -5,12 +5,15 @@ import remarkGfm from 'remark-gfm'
 import { microphoneCapture } from '../audio/microphone'
 import { getErrorMessage } from '../error-message'
 import { useSessionState } from '../hooks'
+import { ConfirmDialog } from './ConfirmDialog'
 
 export function FloatingWindow(): React.JSX.Element {
   const session = useSessionState()
   const [micError, setMicError] = useState('')
   const [localVerifying, setLocalVerifying] = useState(false)
   const [capturingScreen, setCapturingScreen] = useState(false)
+  /** 截屏会离开本机，先问一次；确认框统一走 ConfirmDialog */
+  const [confirmScreenshot, setConfirmScreenshot] = useState(false)
 
   const setRecording = useCallback(async (active: boolean): Promise<void> => {
     if (session.mode !== 'microphone') return
@@ -54,7 +57,7 @@ export function FloatingWindow(): React.JSX.Element {
   }
 
   const askScreenshot = async (): Promise<void> => {
-    if (!window.confirm('将截取鼠标所在的整块屏幕并发送到 DeepSeek。是否继续？')) return
+    setConfirmScreenshot(false)
     try {
       setMicError('')
       setCapturingScreen(true)
@@ -205,7 +208,7 @@ export function FloatingWindow(): React.JSX.Element {
               className="screenshot-question no-drag"
               disabled={capturingScreen}
               title="截图会发送到 DeepSeek"
-              onClick={() => void askScreenshot()}
+              onClick={() => setConfirmScreenshot(true)}
             >
               <ScanLine size={18} />
               {capturingScreen ? '正在截取…' : '截屏提问'}
@@ -230,6 +233,16 @@ export function FloatingWindow(): React.JSX.Element {
           </div>
         )}
       </div>
+
+      {confirmScreenshot && (
+        <ConfirmDialog
+          title="截屏并发送？"
+          description="将截取鼠标所在的整块屏幕并发送到 DeepSeek，用于识别题目。"
+          confirmLabel="截取并发送"
+          onCancel={() => setConfirmScreenshot(false)}
+          onConfirm={() => void askScreenshot()}
+        />
+      )}
     </div>
   )
 }

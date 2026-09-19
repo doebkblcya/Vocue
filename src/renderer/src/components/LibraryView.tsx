@@ -4,6 +4,7 @@ import type { LibraryCategory, LibraryDocumentSummary } from '../../../shared/ty
 import { MATERIAL_TEXT_LIMIT, formatCharCount } from '../../../shared/limits'
 import { describeUsage } from '../document-usage'
 import { getErrorMessage } from '../error-message'
+import { ConfirmDialog } from './ConfirmDialog'
 import { PageHeader } from './PageHeader'
 
 interface Props {
@@ -22,6 +23,7 @@ export function LibraryView({ onChanged }: Props): React.JSX.Element {
   const [notice, setNotice] = useState('')
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [pendingRemove, setPendingRemove] = useState<LibraryDocumentSummary | null>(null)
   const resumeInput = useRef<HTMLInputElement>(null)
   const documentInput = useRef<HTMLInputElement>(null)
 
@@ -77,10 +79,7 @@ export function LibraryView({ onChanged }: Props): React.JSX.Element {
   }
 
   const remove = async (document: LibraryDocumentSummary): Promise<void> => {
-    const label = document.category === 'resume' ? '简历' : '文档'
-    if (!window.confirm(`从文档库删除${label}「${document.filename}」？引用它的档案会失去这份材料。`)) {
-      return
-    }
+    setPendingRemove(null)
     setBusy(true)
     setError('')
     setNotice('')
@@ -142,7 +141,7 @@ export function LibraryView({ onChanged }: Props): React.JSX.Element {
                   className="library-row-button"
                   title="从文档库删除"
                   disabled={busy}
-                  onClick={() => void remove(document)}
+                  onClick={() => setPendingRemove(document)}
                 >
                   <Trash2 size={15} />
                 </button>
@@ -232,6 +231,21 @@ export function LibraryView({ onChanged }: Props): React.JSX.Element {
           {renderRows(materials, '还没有文档。上传项目详述或笔记，之后按需引用。')}
         </section>
       </div>
+
+      {pendingRemove && (
+        <ConfirmDialog
+          title={`删除这份${pendingRemove.category === 'resume' ? '简历' : '文档'}？`}
+          description={(
+            <>
+              「<strong>{pendingRemove.filename}</strong>」会从文档库移除，
+              引用它的档案会失去这份材料。
+            </>
+          )}
+          confirmLabel="删除"
+          onCancel={() => setPendingRemove(null)}
+          onConfirm={() => void remove(pendingRemove)}
+        />
+      )}
     </div>
   )
 }

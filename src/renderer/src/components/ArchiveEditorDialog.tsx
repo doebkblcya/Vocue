@@ -50,6 +50,7 @@ export function ArchiveEditorDialog({
   const [notice, setNotice] = useState('')
   const [picker, setPicker] = useState<'resume' | 'documents' | null>(null)
   const [pendingJobImage, setPendingJobImage] = useState<File | null>(null)
+  const [confirmRemove, setConfirmRemove] = useState(false)
 
   const refreshLibrary = async (): Promise<void> => {
     setLibrary(await window.vocue.library.list())
@@ -180,7 +181,8 @@ export function ArchiveEditorDialog({
   }
 
   const remove = async (): Promise<void> => {
-    if (!preparationId || !window.confirm('确定删除这份面试档案吗？')) return
+    if (!preparationId) return
+    setConfirmRemove(false)
     setBusy(true)
     setError('')
     try {
@@ -372,7 +374,7 @@ export function ArchiveEditorDialog({
         <footer className="dialog-actions split">
           <div>
             {preparationId && (
-              <button className="button ghost danger-text" disabled={busy} onClick={() => void remove()}>
+              <button className="button ghost danger-text" disabled={busy} onClick={() => setConfirmRemove(true)}>
                 <Trash2 size={15} />删除档案
               </button>
             )}
@@ -404,6 +406,16 @@ export function ArchiveEditorDialog({
             }
             setPicker(null)
           }}
+        />
+      )}
+
+      {confirmRemove && (
+        <ConfirmDialog
+          title="删除这份面试档案？"
+          description="档案会连同它的 JD 一起移除；引用过的简历和补充资料仍留在文档库里。"
+          confirmLabel="删除档案"
+          onCancel={() => setConfirmRemove(false)}
+          onConfirm={() => void remove()}
         />
       )}
 

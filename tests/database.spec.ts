@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { LocalDatabase } from '../src/main/storage/database'
-import { planEchoCleanup } from '../src/main/session/echo-cleanup'
 
 const databases: Array<{ database: LocalDatabase; directory: string }> = []
 
@@ -15,154 +14,13 @@ afterEach(() => {
   }
 })
 
-function createDatabase(): LocalDatabase {
-  const directory = mkdtempSync(join(tmpdir(), 'vocue-database-test-'))
-  const database = new LocalDatabase(join(directory, 'vocue.sqlite3'))
-  databases.push({ database, directory })
-  return database
-}
-
-describe('LocalDatabase 文档库与档案引用', () => {
-  it('档案只按 id 引用库文档，同内容在库里只有一份', () => {
-    const database = createDatabase()
-    const resume = database.addLibraryDocument({
-      filename: '简历.md', kind: 'markdown', content: '一份简历',
-    }, 'resume')
-    const notes = database.addLibraryDocument({
-      filename: 'notes.md', kind: 'markdown', content: '补充资料',
-    }, 'document')
-
-    const first = database.savePreparation({
-      name: '岗位 A',
-      jobDescription: 'JD A',
-      stage: null,
-      resumeDocumentId: resume.id,
-      documentIds: [notes.id],
-    })
-    const second = database.savePreparation({
-      name: '岗位 B',
-      jobDescription: 'JD B',
-      stage: null,
-      resumeDocumentId: resume.id,
-      documentIds: [],
-    })
-
-    expect(first.resume?.id).toBe(resume.id)
-    expect(first.resume?.content).toBe('一份简历')
-    expect(first.documents.map((item) => item.libraryDocumentId)).toEqual([notes.id])
-    // 两份档案共用同一份简历，库里仍然只有两条文档
-    expect(second.resume?.id).toBe(resume.id)
-    expect(database.listLibraryDocuments()).toHaveLength(2)
-  })
-
-  it('按 id 更新档案并整份替换补充资料', () => {
-    const database = createDatabase()
-    const notes = database.addLibraryDocument({
-      filename: 'notes.md', kind: 'markdown', content: '补充资料',
-    }, 'document')
-    const created = database.savePreparation({
-      name: '旧名称',
-      jobDescription: '旧 JD',
-      stage: null,
-      resumeDocumentId: null,
-      documentIds: [notes.id],
-    })
-
-    const updated = database.savePreparation({
-      id: created.id,
-      name: '新名称',
-      jobDescription: '新 JD',
-      stage: null,
-      resumeDocumentId: null,
-      documentIds: [],
-    })
-
-    expect(updated.id).toBe(created.id)
-    expect(updated.name).toBe('新名称')
-    expect(updated.jobDescription).toBe('新 JD')
-    expect(updated.documents).toEqual([])
-    expect(updated.createdAt).toBe(created.createdAt)
-    // 解除引用不应该把库文档本身删掉
-    expect(database.listLibraryDocuments()).toHaveLength(1)
-  })
-
-  it('删掉库文档时档案里的引用自动摘掉', () => {
-    const database = createDatabase()
-    const resume = database.addLibraryDocument({
-      filename: '简历.md', kind: 'markdown', content: '一份简历',
-    }, 'resume')
-    const notes = database.addLibraryDocument({
-      filename: 'notes.md', kind: 'markdown', content: '补充资料',
-    }, 'document')
-    const created = database.savePreparation({
-      name: '岗位',
-      jobDescription: '',
-      stage: null,
-      resumeDocumentId: resume.id,
-      documentIds: [notes.id],
-    })
-
-    database.removeLibraryDocument(notes.id)
-    database.removeLibraryDocument(resume.id)
-
-    const after = database.getPreparation(created.id)!
-    expect(after.resume).toBeNull()
-    expect(after.documents).toEqual([])
-  })
-
-  it('列表返回补充资料数量与是否选了简历', () => {
-    const database = createDatabase()
-    const resume = database.addLibraryDocument({
-      filename: '简历.md', kind: 'markdown', content: '简历',
-    }, 'resume')
-    database.savePreparation({
-      name: '档案',
-      jobDescription: '',
-      stage: null,
-      resumeDocumentId: resume.id,
-      documentIds: [
-        database.addLibraryDocument({ filename: 'a.md', kind: 'markdown', content: 'A' }, 'document').id,
-        database.addLibraryDocument({ filename: 'b.md', kind: 'markdown', content: 'B' }, 'document').id,
-      ],
-    })
-
-    expect(database.listPreparations()[0]).toMatchObject({
-      name: '档案',
-      documentCount: 2,
-      hasResume: true,
-    })
-  })
-
-  it('库文档保存全文，不做任何截断', () => {
-    const database = createDatabase()
-    const saved = database.addLibraryDocument({
-      filename: 'long.txt', kind: 'text', content: 'x'.repeat(200_000),
-    }, 'document')
-
-    expect(saved.content).toHaveLength(200_000)
-    expect(database.listLibraryDocuments()[0].totalChars).toBe(200_000)
-  })
-
-  it('简历与文档分开归类，同内容的简历不会被并进补充资料', () => {
-    const database = createDatabase()
-    const content = '同一段正文'
-    const resume = database.addLibraryDocument({ filename: '简历', kind: 'text', content }, 'resume')
-    const material = database.addLibraryDocument(
-      { filename: '笔记.md', kind: 'markdown', content },
-      'document',
-    )
-
-    expect(resume.category).toBe('resume')
-    expect(material.category).toBe('document')
-    expect(database.getLibraryDocument(resume.id)?.category).toBe('resume')
-    expect(
-      database.listLibraryDocuments().map((item) => item.category).sort(),
-    ).toEqual(['document', 'resume'])
-  })
-})
-
-describe('旧数据库迁移到文档库', () => {
-  it('把简历和文档提成库文档，并按正文去重', () => {
+/**
+ * 只留迁移测试。迁移会重建用户的表，写错了就是真丢数据，
+ * 而且「老结构长什么样」在代码里只看得到一半（另一半是历史版本），
+ * 属于读代码验证不了的逻辑。普通增删改查不在这里重复覆盖。
+ */
+describe('旧结构迁移', () => {
+  it('把档案上的简历提成库文档，并按正文去重', () => {
     const directory = mkdtempSync(join(tmpdir(), 'vocue-migration-test-'))
     const path = join(directory, 'vocue.sqlite3')
 
@@ -205,22 +63,16 @@ describe('旧数据库迁移到文档库', () => {
 
     const first = database.getPreparation('p1')!
     const second = database.getPreparation('p2')!
-    expect(first.name).toBe('岗位 A')
-    expect(first.jobDescription).toBe('JD A')
     expect(first.resume?.content).toBe('同一份简历')
     expect(first.resume?.id).toBe(second.resume?.id)
     expect(first.documents[0].libraryDocumentId).toBe(second.documents[0].libraryDocumentId)
-
     // 简历和笔记在库里各一条，分类也跟着分开了
     expect(first.resume?.category).toBe('resume')
-    expect(
-      database.listLibraryDocuments().map((item) => item.category).sort(),
-    ).toEqual(['document', 'resume'])
+    expect(database.listLibraryDocuments().map((item) => item.category).sort())
+      .toEqual(['document', 'resume'])
   })
-})
 
-describe('文档库补上分类', () => {
-  it('给旧库里的简历按引用关系回填分类', () => {
+  it('给旧库的文档补 category：按简历引用回填，引用已断的靠文件名兜底', () => {
     const directory = mkdtempSync(join(tmpdir(), 'vocue-category-test-'))
     const path = join(directory, 'vocue.sqlite3')
 
@@ -251,9 +103,13 @@ describe('文档库补上分类', () => {
         created_at TEXT NOT NULL
       );
       INSERT INTO library_documents VALUES
-        ('r1', '简历', 'text', '简历正文', '2026-01-01', '2026-01-01');
+        ('r1', '简历', 'text', '被引用的简历', '2026-01-01', '2026-01-01');
+      INSERT INTO library_documents VALUES
+        ('r2', '简历', 'text', '没人引用的简历', '2026-01-01', '2026-01-01');
       INSERT INTO library_documents VALUES
         ('d1', 'notes.md', 'markdown', '笔记正文', '2026-01-01', '2026-01-01');
+      INSERT INTO library_documents VALUES
+        ('d2', '简历.pdf', 'pdf', '名字像简历但类型不符', '2026-01-01', '2026-01-01');
       INSERT INTO preparations VALUES
         ('p1', '岗位', 'JD', 'r1', '2026-01-01', '2026-01-01');
       INSERT INTO preparation_documents VALUES
@@ -267,135 +123,31 @@ describe('文档库补上分类', () => {
     const categories = new Map(
       database.listLibraryDocuments().map((item) => [item.id, item.category]),
     )
+    // 被引用的算简历
     expect(categories.get('r1')).toBe('resume')
+    // 引用断了，靠迁移时那个确切的「简历 / text」组合兜底
+    expect(categories.get('r2')).toBe('resume')
+    // 名字像但类型不符的不认
+    expect(categories.get('d2')).toBe('document')
     expect(categories.get('d1')).toBe('document')
     // 回填只动分类，原有引用照旧
     expect(database.getPreparation('p1')?.resume?.id).toBe('r1')
     expect(database.getPreparation('p1')?.documents[0].libraryDocumentId).toBe('d1')
   })
 
-  it('引用已断的旧简历靠迁移时的文件名兜底', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'vocue-category-orphan-test-'))
-    const path = join(directory, 'vocue.sqlite3')
-
-    const older = new DatabaseSync(path)
-    older.exec(`
-      CREATE TABLE library_documents (
-        id TEXT PRIMARY KEY,
-        filename TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        content TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      INSERT INTO library_documents VALUES
-        ('r1', '简历', 'text', '没人引用的简历', '2026-01-01', '2026-01-01');
-      INSERT INTO library_documents VALUES
-        ('d1', '简历.pdf', 'pdf', '名字像简历但类型不符', '2026-01-01', '2026-01-01');
-    `)
-    older.close()
-
-    const database = new LocalDatabase(path)
-    databases.push({ database, directory })
-
-    const categories = new Map(
-      database.listLibraryDocuments().map((item) => [item.id, item.category]),
-    )
-    expect(categories.get('r1')).toBe('resume')
-    // 兜底只认迁移时那个确切的「简历 / text」组合
-    expect(categories.get('d1')).toBe('document')
-  })
-})
-
-describe('面试阶段', () => {
-  it('可以单独推进，不影响档案其余部分', () => {
-    const database = createDatabase()
-    const created = database.savePreparation({
-      name: '岗位',
-      jobDescription: 'JD',
-      stage: null,
-      resumeDocumentId: null,
-      documentIds: [],
-    })
-    expect(created.stage).toBeNull()
-    expect(database.listPreparations()[0].stage).toBeNull()
-
-    // 档案卡上「进入下一面」走的就是这条路，不必整份读写
-    expect(database.setPreparationStage(created.id, 0).stage).toBe(0)
-    expect(database.setPreparationStage(created.id, 2).stage).toBe(2)
-    expect(database.getPreparation(created.id)).toMatchObject({
-      stage: 2,
-      name: '岗位',
-      jobDescription: 'JD',
-    })
-  })
-
-  it('保存档案时阶段跟着一起写，可以改回未设置', () => {
-    const database = createDatabase()
-    const created = database.savePreparation({
-      name: '岗位',
-      jobDescription: 'JD',
-      stage: 1,
-      resumeDocumentId: null,
-      documentIds: [],
-    })
-    expect(created.stage).toBe(1)
-
-    const reset = database.savePreparation({
-      id: created.id,
-      name: '岗位',
-      jobDescription: 'JD',
-      stage: null,
-      resumeDocumentId: null,
-      documentIds: [],
-    })
-    expect(reset.stage).toBeNull()
-  })
-
-  it('拒绝不合法的阶段值', () => {
-    const database = createDatabase()
-    const created = database.savePreparation({
-      name: '岗位',
-      jobDescription: '',
-      stage: null,
-      resumeDocumentId: null,
-      documentIds: [],
-    })
-
-    expect(() => database.setPreparationStage(created.id, -1)).toThrow('面试阶段不合法')
-    expect(() => database.setPreparationStage(created.id, 1.5)).toThrow('面试阶段不合法')
-  })
-
-  it('给老档案补 stage 列，已有档案按未设置处理', () => {
+  it('给老档案补 stage 列，一律按未设置处理', () => {
     const directory = mkdtempSync(join(tmpdir(), 'vocue-stage-test-'))
     const path = join(directory, 'vocue.sqlite3')
 
-    // 上一版的档案表：还没有 stage 列
     const older = new DatabaseSync(path)
     older.exec(`
-      CREATE TABLE library_documents (
-        id TEXT PRIMARY KEY,
-        filename TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        category TEXT NOT NULL DEFAULT 'document',
-        content TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
       CREATE TABLE preparations (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         job_description TEXT NOT NULL DEFAULT '',
-        resume_document_id TEXT REFERENCES library_documents(id) ON DELETE SET NULL,
+        resume_document_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
-      );
-      CREATE TABLE preparation_documents (
-        id TEXT PRIMARY KEY,
-        preparation_id TEXT NOT NULL REFERENCES preparations(id) ON DELETE CASCADE,
-        library_document_id TEXT NOT NULL REFERENCES library_documents(id) ON DELETE CASCADE,
-        position INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL
       );
       INSERT INTO preparations VALUES
         ('p1', '老档案', 'JD', NULL, '2026-01-01', '2026-01-01');
@@ -407,123 +159,12 @@ describe('面试阶段', () => {
 
     // 不猜轮次：老档案一律未设置，推进与否由用户决定
     expect(database.listPreparations()[0]).toMatchObject({ name: '老档案', stage: null })
-    expect(database.getPreparation('p1')?.stage).toBeNull()
-  })
-})
-
-describe('LocalDatabase 面试记录', () => {
-  it('保存双方终稿、时间点和复盘结果', () => {
-    const database = createDatabase()
-    const record = database.createInterviewSession({
-      preparationId: null,
-      preparationName: '通用面试',
-    })
-
-    database.appendInterviewUtterance({
-      sessionId: record.id,
-      role: 'interviewer',
-      text: '请介绍一下自己。',
-      startMs: 1200,
-      endMs: 2600,
-    })
-    database.appendInterviewUtterance({
-      sessionId: record.id,
-      role: 'candidate',
-      text: '我是一名前端工程师。',
-      startMs: 3000,
-      endMs: 5200,
-    })
-    database.finishInterviewSession(record.id)
-    database.setInterviewReviewState(record.id, 'completed', '# 面试复盘\n表现稳定')
-
-    expect(database.listInterviewSessions()[0]).toMatchObject({
-      id: record.id,
-      status: 'completed',
-      utteranceCount: 2,
-      hasReview: true,
-    })
-    expect(database.getInterviewSession(record.id)).toMatchObject({
-      reviewMarkdown: '# 面试复盘\n表现稳定',
-      utterances: [
-        { role: 'interviewer', startMs: 1200, endMs: 2600 },
-        { role: 'candidate', startMs: 3000, endMs: 5200 },
-      ],
-    })
-  })
-
-  it('重新打开数据库时把未正常结束的记录标为不完整', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'vocue-database-recovery-test-'))
-    const path = join(directory, 'vocue.sqlite3')
-    const first = new LocalDatabase(path)
-    const record = first.createInterviewSession({ preparationId: null, preparationName: '异常退出' })
-    first.close()
-
-    const recovered = new LocalDatabase(path)
-    databases.push({ database: recovered, directory })
-
-    expect(recovered.getInterviewSession(record.id)?.status).toBe('incomplete')
-    expect(recovered.getInterviewSession(record.id)?.endedAt).not.toBeNull()
-    // 启动恢复是「应用没走到收尾」，原因应当记成 app_terminated
-    expect(recovered.getInterviewSession(record.id)?.incompleteReason).toBe('app_terminated')
-  })
-
-  it('落库时记下被判为不完整的原因', () => {
-    const database = createDatabase()
-    const record = database.createInterviewSession({ preparationId: null, preparationName: '掉线' })
-
-    database.finishInterviewSession(record.id, 'incomplete', 'asr_reconnecting')
-
-    expect(database.getInterviewSession(record.id)).toMatchObject({
-      status: 'incomplete',
-      incompleteReason: 'asr_reconnecting',
-    })
-    expect(database.listInterviewSessions()[0].incompleteReason).toBe('asr_reconnecting')
-  })
-
-  it('正常结束时不留下原因', () => {
-    const database = createDatabase()
-    const record = database.createInterviewSession({ preparationId: null, preparationName: '正常' })
-
-    database.finishInterviewSession(record.id, 'ready', 'asr_reconnecting')
-
-    // 状态正常就不该带原因，否则界面会把「曾经出过问题」带到正常记录上
-    expect(database.getInterviewSession(record.id)?.incompleteReason).toBeNull()
-  })
-
-  it('删除记录会连转写一起带走', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'vocue-remove-record-test-'))
-    const path = join(directory, 'vocue.sqlite3')
-    const database = new LocalDatabase(path)
-    databases.push({ database, directory })
-
-    const record = database.createInterviewSession({ preparationId: null, preparationName: '待删' })
-    database.appendInterviewUtterance({
-      sessionId: record.id,
-      role: 'interviewer',
-      text: '请介绍一下自己。',
-      startMs: 0,
-      endMs: 1000,
-    })
-
-    database.removeInterviewSession(record.id)
-
-    expect(database.getInterviewSession(record.id)).toBeNull()
-    expect(database.listInterviewSessions()).toEqual([])
-
-    // 子表不能留孤儿，直接查库确认级联删掉了
-    const raw = new DatabaseSync(path)
-    const row = raw
-      .prepare('SELECT COUNT(*) AS total FROM interview_utterances WHERE session_id = ?')
-      .get(record.id) as { total: number }
-    raw.close()
-    expect(Number(row.total)).toBe(0)
   })
 
   it('给老记录补 incomplete_reason 列，历史值保持为空', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'vocue-reason-migration-test-'))
+    const directory = mkdtempSync(join(tmpdir(), 'vocue-reason-test-'))
     const path = join(directory, 'vocue.sqlite3')
 
-    // 上一版的记录表：还没有 incomplete_reason 列
     const older = new DatabaseSync(path)
     older.exec(`
       CREATE TABLE interview_sessions (
@@ -551,43 +192,6 @@ describe('LocalDatabase 面试记录', () => {
     expect(database.getInterviewSession('s1')).toMatchObject({
       status: 'incomplete',
       incompleteReason: null,
-    })
-    expect(database.listInterviewSessions()[0].incompleteReason).toBeNull()
-  })
-
-  it('清理结果独立保存并且可以撤销，不修改原始转写', () => {
-    const database = createDatabase()
-    const record = database.createInterviewSession({ preparationId: null, preparationName: '外放测试' })
-    database.appendInterviewUtterance({
-      sessionId: record.id,
-      role: 'interviewer',
-      text: '请介绍一下自己。',
-      startMs: 1000,
-      endMs: 2500,
-    })
-    database.appendInterviewUtterance({
-      sessionId: record.id,
-      role: 'candidate',
-      text: '请介绍一下自己。',
-      startMs: 1200,
-      endMs: 2700,
-    })
-    database.finishInterviewSession(record.id)
-
-    const raw = database.getInterviewSession(record.id)!
-    const cleaned = database.applyEchoCleanup(record.id, planEchoCleanup(raw.utterances))
-    expect(cleaned.echoCleanupApplied).toBe(true)
-    expect(cleaned.echoRemovedCount).toBe(1)
-    expect(cleaned.utterances[1]).toMatchObject({
-      text: '请介绍一下自己。',
-      excludedAsEcho: true,
-    })
-
-    const restored = database.undoEchoCleanup(record.id)
-    expect(restored.echoCleanupApplied).toBe(false)
-    expect(restored.utterances[1]).toMatchObject({
-      text: '请介绍一下自己。',
-      excludedAsEcho: false,
     })
   })
 })

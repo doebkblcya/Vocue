@@ -1,5 +1,6 @@
 import { FileText, FolderPlus, Home, Library, Play, Settings, Square } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
+import { nextStage } from '../../../shared/stage'
 import type { AudioMode, InterviewRecordSummary, PreparationSummary } from '../../../shared/types'
 import { useSessionState } from '../hooks'
 import { ArchiveCard } from './ArchiveCard'
@@ -80,6 +81,19 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
   const stop = async (): Promise<void> => {
     await window.vocue.session.stop()
     await window.vocue.window.closeFloating()
+    await refresh()
+  }
+
+  /**
+   * 档案卡上点阶段即可推进一轮，不用进编辑弹窗。
+   * 不做乐观更新：写完回读一次，失败时界面停在真实阶段上。
+   */
+  const advanceStage = async (preparation: PreparationSummary): Promise<void> => {
+    try {
+      await window.vocue.preparations.setStage(preparation.id, nextStage(preparation.stage))
+    } catch {
+      // 本地库写入失败极少见，回读一次就能让界面回到真实状态
+    }
     await refresh()
   }
 
@@ -236,6 +250,7 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
                         preparation={preparation}
                         onEdit={() => setEditingId(preparation.id)}
                         onStart={() => openStart(preparation.id)}
+                        onAdvanceStage={() => void advanceStage(preparation)}
                       />
                     ))}
                   </div>
@@ -271,6 +286,7 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
                       preparation={preparation}
                       onEdit={() => setEditingId(preparation.id)}
                       onStart={() => openStart(preparation.id)}
+                      onAdvanceStage={() => void advanceStage(preparation)}
                     />
                   ))}
                 </div>

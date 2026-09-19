@@ -35,12 +35,14 @@ describe('LocalDatabase 文档库与档案引用', () => {
     const first = database.savePreparation({
       name: '岗位 A',
       jobDescription: 'JD A',
+      stage: null,
       resumeDocumentId: resume.id,
       documentIds: [notes.id],
     })
     const second = database.savePreparation({
       name: '岗位 B',
       jobDescription: 'JD B',
+      stage: null,
       resumeDocumentId: resume.id,
       documentIds: [],
     })
@@ -61,6 +63,7 @@ describe('LocalDatabase 文档库与档案引用', () => {
     const created = database.savePreparation({
       name: '旧名称',
       jobDescription: '旧 JD',
+      stage: null,
       resumeDocumentId: null,
       documentIds: [notes.id],
     })
@@ -69,6 +72,7 @@ describe('LocalDatabase 文档库与档案引用', () => {
       id: created.id,
       name: '新名称',
       jobDescription: '新 JD',
+      stage: null,
       resumeDocumentId: null,
       documentIds: [],
     })
@@ -93,6 +97,7 @@ describe('LocalDatabase 文档库与档案引用', () => {
     const created = database.savePreparation({
       name: '岗位',
       jobDescription: '',
+      stage: null,
       resumeDocumentId: resume.id,
       documentIds: [notes.id],
     })
@@ -113,6 +118,7 @@ describe('LocalDatabase 文档库与档案引用', () => {
     database.savePreparation({
       name: '档案',
       jobDescription: '',
+      stage: null,
       resumeDocumentId: resume.id,
       documentIds: [
         database.addLibraryDocument({ filename: 'a.md', kind: 'markdown', content: 'A' }, 'document').id,
@@ -298,6 +304,110 @@ describe('文档库补上分类', () => {
     expect(categories.get('r1')).toBe('resume')
     // 兜底只认迁移时那个确切的「简历 / text」组合
     expect(categories.get('d1')).toBe('document')
+  })
+})
+
+describe('面试阶段', () => {
+  it('可以单独推进，不影响档案其余部分', () => {
+    const database = createDatabase()
+    const created = database.savePreparation({
+      name: '岗位',
+      jobDescription: 'JD',
+      stage: null,
+      resumeDocumentId: null,
+      documentIds: [],
+    })
+    expect(created.stage).toBeNull()
+    expect(database.listPreparations()[0].stage).toBeNull()
+
+    // 档案卡上「进入下一面」走的就是这条路，不必整份读写
+    expect(database.setPreparationStage(created.id, 0).stage).toBe(0)
+    expect(database.setPreparationStage(created.id, 2).stage).toBe(2)
+    expect(database.getPreparation(created.id)).toMatchObject({
+      stage: 2,
+      name: '岗位',
+      jobDescription: 'JD',
+    })
+  })
+
+  it('保存档案时阶段跟着一起写，可以改回未设置', () => {
+    const database = createDatabase()
+    const created = database.savePreparation({
+      name: '岗位',
+      jobDescription: 'JD',
+      stage: 1,
+      resumeDocumentId: null,
+      documentIds: [],
+    })
+    expect(created.stage).toBe(1)
+
+    const reset = database.savePreparation({
+      id: created.id,
+      name: '岗位',
+      jobDescription: 'JD',
+      stage: null,
+      resumeDocumentId: null,
+      documentIds: [],
+    })
+    expect(reset.stage).toBeNull()
+  })
+
+  it('拒绝不合法的阶段值', () => {
+    const database = createDatabase()
+    const created = database.savePreparation({
+      name: '岗位',
+      jobDescription: '',
+      stage: null,
+      resumeDocumentId: null,
+      documentIds: [],
+    })
+
+    expect(() => database.setPreparationStage(created.id, -1)).toThrow('面试阶段不合法')
+    expect(() => database.setPreparationStage(created.id, 1.5)).toThrow('面试阶段不合法')
+  })
+
+  it('给老档案补 stage 列，已有档案按未设置处理', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'vocue-stage-test-'))
+    const path = join(directory, 'vocue.sqlite3')
+
+    // 上一版的档案表：还没有 stage 列
+    const older = new DatabaseSync(path)
+    older.exec(`
+      CREATE TABLE library_documents (
+        id TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'document',
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE preparations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        job_description TEXT NOT NULL DEFAULT '',
+        resume_document_id TEXT REFERENCES library_documents(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE preparation_documents (
+        id TEXT PRIMARY KEY,
+        preparation_id TEXT NOT NULL REFERENCES preparations(id) ON DELETE CASCADE,
+        library_document_id TEXT NOT NULL REFERENCES library_documents(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO preparations VALUES
+        ('p1', '老档案', 'JD', NULL, '2026-01-01', '2026-01-01');
+    `)
+    older.close()
+
+    const database = new LocalDatabase(path)
+    databases.push({ database, directory })
+
+    // 不猜轮次：老档案一律未设置，推进与否由用户决定
+    expect(database.listPreparations()[0]).toMatchObject({ name: '老档案', stage: null })
+    expect(database.getPreparation('p1')?.stage).toBeNull()
   })
 })
 

@@ -3,6 +3,7 @@ import type {
   AppSettings,
   AudioMode,
   ExtractedDocument,
+  InterviewStage,
   LibraryCategory,
   VocueApi,
 } from '../shared/types'
@@ -28,9 +29,12 @@ const api: VocueApi = {
       id?: string
       name: string
       jobDescription: string
+      stage: InterviewStage
       resumeDocumentId: string | null
       documentIds: string[]
     }) => ipcRenderer.invoke('preparations:save', input),
+    setStage: (id: string, stage: InterviewStage) =>
+      ipcRenderer.invoke('preparations:set-stage', id, stage),
     remove: (id: string) => ipcRenderer.invoke('preparations:remove', id),
   },
   library: {

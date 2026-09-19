@@ -1,5 +1,6 @@
 import { FileText, Trash2, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { STAGE_CHOICES, formatStage, type InterviewStage } from '../../../shared/stage'
 import type { LibraryDocumentSummary } from '../../../shared/types'
 import { describeUsage } from '../document-usage'
 import { getErrorMessage } from '../error-message'
@@ -9,6 +10,7 @@ interface Draft {
   id?: string
   name: string
   jobDescription: string
+  stage: InterviewStage
   resumeDocumentId: string | null
   documentIds: string[]
 }
@@ -19,7 +21,13 @@ interface Props {
   onSaved: () => Promise<void>
 }
 
-const EMPTY: Draft = { name: '', jobDescription: '', resumeDocumentId: null, documentIds: [] }
+const EMPTY: Draft = {
+  name: '',
+  jobDescription: '',
+  stage: null,
+  resumeDocumentId: null,
+  documentIds: [],
+}
 
 /**
  * 档案不再自己存正文：JD 仍然是档案独有的文本，
@@ -58,6 +66,7 @@ export function ArchiveEditorDialog({
           id: preparation.id,
           name: preparation.name,
           jobDescription: preparation.jobDescription,
+          stage: preparation.stage,
           resumeDocumentId: preparation.resume?.id ?? null,
           documentIds: preparation.documents.map((document) => document.libraryDocumentId),
         })
@@ -202,9 +211,30 @@ export function ArchiveEditorDialog({
               <label>档案名称</label>
               <input
                 value={draft.name}
-                placeholder="例如：高级前端工程师 · 第三轮"
+                placeholder="例如：高级前端工程师"
                 onChange={(event) => setDraft({ ...draft, name: event.target.value })}
               />
+
+              <div className="archive-field">
+                <div className="archive-field-head">
+                  <label>面试阶段</label>
+                </div>
+                <select
+                  value={draft.stage === null ? 'none' : String(draft.stage)}
+                  onChange={(event) => setDraft({
+                    ...draft,
+                    stage: event.target.value === 'none' ? null : Number(event.target.value),
+                  })}
+                >
+                  <option value="none">未设置</option>
+                  {STAGE_CHOICES.map((stage) => (
+                    <option key={stage} value={stage}>{formatStage(stage)}</option>
+                  ))}
+                </select>
+                <p className="archive-field-hint">
+                  推进到下一轮就在这里改；档案卡上点阶段也能直接推进一轮。
+                </p>
+              </div>
 
               <div className="archive-field">
                 <div className="archive-field-head">

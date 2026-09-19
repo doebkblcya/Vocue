@@ -1,5 +1,11 @@
 import { ipcMain, nativeTheme, type WebContents } from 'electron'
-import type { AppSettings, AudioMode, ExtractedDocument, LibraryCategory } from '../../shared/types'
+import type {
+  AppSettings,
+  AudioMode,
+  ExtractedDocument,
+  InterviewStage,
+  LibraryCategory,
+} from '../../shared/types'
 import { toUserMessage } from '../../shared/error-message'
 import { DeepSeekClient } from '../ai/deepseek-client'
 import { buildInterviewReviewPrompt } from '../ai/interview-review'
@@ -84,12 +90,16 @@ export function registerIpc(
       id?: string
       name: string
       jobDescription: string
+      stage: InterviewStage
       resumeDocumentId: string | null
       documentIds: string[]
     }) => {
       if (!input.name.trim()) throw new Error('请输入准备名称')
       return database.savePreparation(input)
     },
+  )
+  handle('preparations:set-stage', (_sender, id: string, stage: InterviewStage) =>
+    database.setPreparationStage(id, stage),
   )
   handle('preparations:remove', (_sender, id: string) => database.removePreparation(id))
 

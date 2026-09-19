@@ -21,6 +21,7 @@ interface PreparationRow {
   id: string
   name: string
   job_description: string
+  stage: number | null
   resume_document_id: string | null
   created_at: string
   updated_at: string
@@ -74,6 +75,7 @@ export class LocalDatabase {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         job_description TEXT NOT NULL DEFAULT '',
+        stage INTEGER,
         resume_document_id TEXT REFERENCES library_documents(id) ON DELETE SET NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -130,6 +132,7 @@ export class LocalDatabase {
     `)
     this.migrateToDocumentLibrary()
     this.migrateLibraryCategories()
+    this.migratePreparationStage()
     const recoveredAt = new Date().toISOString()
     this.db.prepare(`
       UPDATE interview_sessions
@@ -258,14 +261,15 @@ export class LocalDatabase {
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             job_description TEXT NOT NULL DEFAULT '',
+            stage INTEGER,
             resume_document_id TEXT REFERENCES library_documents(id) ON DELETE SET NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
           );
         `)
         const insertPreparation = this.db.prepare(`
-          INSERT INTO preparations(id, name, job_description, resume_document_id, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO preparations(id, name, job_description, stage, resume_document_id, created_at, updated_at)
+          VALUES (?, ?, ?, NULL, ?, ?, ?)
         `)
         for (const row of legacyPreparations) {
           insertPreparation.run(
@@ -329,6 +333,12 @@ export class LocalDatabase {
     `)
   }
 
+  /** 面试阶段是后加的列：老档案一律先按「未设置」处理，不猜轮次 */
+  private migratePreparationStage(): void {
+    if (this.columnNames('preparations').includes('stage')) return
+    this.db.exec('ALTER TABLE preparations ADD COLUMN stage INTEGER')
+  }
+
   getSetting(key: string): string | null {
     const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
       | { value: string }
@@ -348,7 +358,7 @@ export class LocalDatabase {
   listPreparations(): PreparationSummary[] {
     const rows = this.db
       .prepare(`
-        SELECT p.id, p.name, p.updated_at,
+        SELECT p.id, p.name, p.stage, p.updated_at,
           CASE WHEN p.resume_document_id IS NULL THEN 0 ELSE 1 END AS has_resume,
           COUNT(d.id) AS document_count
         FROM preparations p
@@ -359,6 +369,7 @@ export class LocalDatabase {
       .all() as Array<{
       id: string
       name: string
+      stage: number | null
       updated_at: string
       has_resume: number
       document_count: number
@@ -367,6 +378,7 @@ export class LocalDatabase {
     return rows.map((row) => ({
       id: row.id,
       name: row.name,
+      stage: row.stage,
       updatedAt: row.updated_at,
       documentCount: Number(row.document_count),
       hasResume: Boolean(row.has_resume),
@@ -394,6 +406,7 @@ export class LocalDatabase {
       id: row.id,
       name: row.name,
       jobDescription: row.job_description,
+      stage: row.stage,
       resume: row.resume_document_id ? this.getLibraryDocument(row.resume_document_id) : null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -414,6 +427,7 @@ export class LocalDatabase {
     id?: string
     name: string
     jobDescription: string
+    stage: number | null
     resumeDocumentId: string | null
     documentIds: string[]
   }): Preparation {
@@ -426,11 +440,12 @@ export class LocalDatabase {
       this.db
         .prepare(`
           INSERT INTO preparations(
-            id, name, job_description, resume_document_id, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?)
+            id, name, job_description, stage, resume_document_id, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             job_description = excluded.job_description,
+            stage = excluded.stage,
             resume_document_id = excluded.resume_document_id,
             updated_at = excluded.updated_at
         `)
@@ -438,6 +453,7 @@ export class LocalDatabase {
           id,
           input.name.trim(),
           input.jobDescription,
+          input.stage,
           input.resumeDocumentId,
           existing?.createdAt ?? now,
           now,
@@ -459,6 +475,22 @@ export class LocalDatabase {
     }
 
     return this.getPreparation(id) as Preparation
+  }
+
+  /**
+   * 只动面试阶段。档案卡上「进入下一面」走的就是这条路，
+   * 不必先把整份档案读出来再整份写回去。
+   */
+  setPreparationStage(id: string, stage: number | null): PreparationSummary {
+    if (stage !== null && (!Number.isInteger(stage) || stage < 0)) {
+      throw new Error('面试阶段不合法')
+    }
+    this.db
+      .prepare('UPDATE preparations SET stage = ?, updated_at = ? WHERE id = ?')
+      .run(stage, new Date().toISOString(), id)
+    const summary = this.listPreparations().find((item) => item.id === id)
+    if (!summary) throw new Error('档案不存在')
+    return summary
   }
 
   removePreparation(id: string): void {

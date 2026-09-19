@@ -1,17 +1,25 @@
 import { FileText, Play } from 'lucide-react'
+import { formatStage, nextStage } from '../../../shared/stage'
 import type { PreparationSummary } from '../../../shared/types'
 
 interface Props {
   preparation: PreparationSummary
   onEdit: () => void
   onStart: () => void
+  /** 推进一轮：未设置 → AI 面 → 一面 → 二面 … */
+  onAdvanceStage: () => void
 }
 
 /**
  * 卡片主体进编辑，动作按钮独立。
  * 不用嵌套 button，避免出现「点卡片还是点按钮」的歧义。
  */
-export function ArchiveCard({ preparation, onEdit, onStart }: Props): React.JSX.Element {
+export function ArchiveCard({
+  preparation,
+  onEdit,
+  onStart,
+  onAdvanceStage,
+}: Props): React.JSX.Element {
   return (
     <article className="archive-card">
       <button className="archive-card-main" onClick={onEdit}>
@@ -23,6 +31,13 @@ export function ArchiveCard({ preparation, onEdit, onStart }: Props): React.JSX.
           </small>
         </span>
         <time>{formatDate(preparation.updatedAt)}</time>
+      </button>
+      <button
+        className={`archive-card-stage ${preparation.stage === null ? 'unset' : ''}`}
+        title={`点击进入${formatStage(nextStage(preparation.stage))}`}
+        onClick={onAdvanceStage}
+      >
+        {formatStage(preparation.stage)}
       </button>
       <button className="archive-card-start" title="用这份档案开始面试" onClick={onStart}>
         <Play size={14} fill="currentColor" />

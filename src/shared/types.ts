@@ -1,7 +1,11 @@
+import type { InterviewStage } from './stage'
+
 export type AudioMode = 'system' | 'microphone'
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type ThinkingEffort = 'disabled' | 'low' | 'high' | 'max'
 export type DocumentKind = 'pdf' | 'markdown' | 'text'
+
+export type { InterviewStage }
 
 export interface AppSettings {
   deepseekApiKey: string
@@ -71,6 +75,8 @@ export interface Preparation {
   id: string
   name: string
   jobDescription: string
+  /** 面到第几轮了；null 表示还没定 */
+  stage: InterviewStage
   /** 从文档库选中的简历；未选择时为 null */
   resume: LibraryDocument | null
   createdAt: string
@@ -81,6 +87,7 @@ export interface Preparation {
 export interface PreparationSummary {
   id: string
   name: string
+  stage: InterviewStage
   updatedAt: string
   documentCount: number
   hasResume: boolean
@@ -200,9 +207,12 @@ export interface VocueApi {
       id?: string
       name: string
       jobDescription: string
+      stage: InterviewStage
       resumeDocumentId: string | null
       documentIds: string[]
     }) => Promise<Preparation>
+    /** 只改面试阶段：档案卡上「进入下一面」用的轻量入口 */
+    setStage: (id: string, stage: InterviewStage) => Promise<PreparationSummary>
     remove: (id: string) => Promise<void>
   }
   library: {

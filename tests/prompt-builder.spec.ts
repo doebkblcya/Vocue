@@ -21,6 +21,7 @@ const preparation: Preparation = {
   id: '1',
   name: '测试岗位',
   jobDescription: '需要 TypeScript',
+  stage: null,
   resume,
   createdAt: '',
   updatedAt: '',

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { formatRecordingIssue } from '../../../shared/recording-issue'
+import { isUnrecognizedSpeech } from '../../../shared/transcript'
 import type { InterviewRecord } from '../../../shared/types'
 import { getErrorMessage } from '../error-message'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -184,15 +185,21 @@ export function InterviewRecordView({ recordId, onBack, onChanged }: Props): Rea
             )}
           </header>
           <div className="utterance-list">
-            {visibleUtterances.length ? visibleUtterances.map((utterance) => (
-              <article key={utterance.id} className={`utterance utterance-${utterance.role}`}>
-                <time>{formatOffset(utterance.startMs)}</time>
-                <div>
-                  <strong>{utterance.role === 'interviewer' ? '面试官' : '我'}</strong>
-                  <p>{utterance.cleanedText ?? utterance.text}</p>
-                </div>
-              </article>
-            )) : (
+            {visibleUtterances.length ? visibleUtterances.map((utterance) => {
+              const missing = isUnrecognizedSpeech(utterance.cleanedText ?? utterance.text)
+              return (
+                <article
+                  key={utterance.id}
+                  className={`utterance utterance-${utterance.role} ${missing ? 'utterance-missing' : ''}`}
+                >
+                  <time>{formatOffset(utterance.startMs)}</time>
+                  <div>
+                    <strong>{utterance.role === 'interviewer' ? '面试官' : '我'}</strong>
+                    <p>{missing ? '这一段没有识别到' : (utterance.cleanedText ?? utterance.text)}</p>
+                  </div>
+                </article>
+              )
+            }) : (
               <p className="record-empty">{isRunning ? '面试进行中，终稿会陆续写入这里。' : '没有识别到可保存的内容。'}</p>
             )}
           </div>

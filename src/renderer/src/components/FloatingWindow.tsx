@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { GripHorizontal, Headphones, Mic, Minus, RefreshCw, ScanLine, Square } from 'lucide-react'
+import { GripHorizontal, Headphones, Mic, Minus, RefreshCw, ScanLine, Square, TriangleAlert } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { isUnrecognizedSpeech } from '../../../shared/transcript'
 import { microphoneCapture } from '../audio/microphone'
 import { getErrorMessage } from '../error-message'
 import { useSessionState } from '../hooks'
@@ -122,6 +123,9 @@ export function FloatingWindow(): React.JSX.Element {
   // 兜底再翻译一次：任何一路漏出来的技术错误都不该原样出现在界面上
   const errorText = micError ? getErrorMessage(micError) : session.error ? getErrorMessage(session.error) : ''
 
+  // 面试官这一段没识别到：如实说，不要让候选人误以为面试官没说话
+  const unrecognized = isUnrecognizedSpeech(session.partialTranscript || session.finalTranscript)
+
   const verifying = localVerifying || session.status === 'verifying'
   // 只有「能重新检测」时才把胶囊渲染成按钮。
   // 其余状态是普通元素，从根上避免 disabled 的灰化波及它们。
@@ -167,7 +171,14 @@ export function FloatingWindow(): React.JSX.Element {
 
         <section className="transcript-box">
           <span className="box-label">面试官</span>
-          <p>{session.partialTranscript || session.finalTranscript || '等待问题…'}</p>
+          {unrecognized ? (
+            <p className="transcript-unrecognized">
+              <TriangleAlert size={13} />
+              这一段没有识别到，可以请面试官重复一遍
+            </p>
+          ) : (
+            <p>{session.partialTranscript || session.finalTranscript || '等待问题…'}</p>
+          )}
         </section>
 
         <section className="answer-box">

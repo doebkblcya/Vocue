@@ -18,6 +18,7 @@ import {
 import { SystemAudioProcessor } from '../audio/system-audio-processor'
 import { SystemAudioCapture } from '../audio/system-audio-capture'
 import type { RecordingIssue } from '../../shared/recording-issue'
+import { UNRECOGNIZED_SPEECH } from '../../shared/transcript'
 import { log } from '../log'
 import { LocalDatabase } from '../storage/database'
 import { SettingsStore } from '../storage/settings'
@@ -369,6 +370,12 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
           this.interviewerFinishResolve = null
         }
       },
+      onUnrecognized: (timing) => {
+        if (this.asr !== asr) return
+        this.handleUnrecognized('interviewer', timing)
+        this.interviewerFinishResolve?.()
+        this.interviewerFinishResolve = null
+      },
       onState: (state, message, code) => {
         // 已被刷新或替换的连接即使收到迟到错误，也不能污染当前会话状态。
         if (this.asr !== asr) return
@@ -433,6 +440,12 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
         this.candidateFinishResolve?.()
         this.candidateFinishResolve = null
       },
+      onUnrecognized: (timing) => {
+        if (this.candidateAsr !== asr) return
+        this.handleUnrecognized('candidate', timing)
+        this.candidateFinishResolve?.()
+        this.candidateFinishResolve = null
+      },
       onState: (state, message) => {
         if (this.candidateAsr !== asr) return
         if (state === 'connected') {
@@ -488,6 +501,19 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
     if (this.stopping) return
     this.patchState({ finalTranscript: normalized, partialTranscript: '' })
     this.requestAnswer(normalized)
+  }
+
+  /**
+   * 服务端明确说完了一句，却没给出任何分句文本。
+   *
+   * 不猜内容、也不拿累计文本充数：如实留一条占位，位置和数量都保住。
+   * 这里刻意不调 requestAnswer —— 没有题目可答，不该拿空气去问模型。
+   */
+  private handleUnrecognized(role: 'interviewer' | 'candidate', timing?: AsrUtteranceTiming): void {
+    this.recordUtterance(role, UNRECOGNIZED_SPEECH, timing)
+    // 面试官的缺口要实时告诉用户；候选人的只进记录，不打断悬浮窗
+    if (role !== 'interviewer' || this.stopping) return
+    this.patchState({ finalTranscript: UNRECOGNIZED_SPEECH, partialTranscript: '' })
   }
 
   private recordUtterance(

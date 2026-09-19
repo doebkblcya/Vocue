@@ -269,6 +269,8 @@ button.titlebar-session:hover { background: var(--surface-hover); }
 .utterance strong { color: var(--text-faint); font-size: 9px; }
 .utterance-candidate strong { color: var(--accent-text); }
 .utterance p { margin: 5px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.65; }
+.utterance-missing > div { border-left-color: var(--warning); }
+.utterance-missing p { color: var(--warning); font-style: italic; }
 .record-empty { color: var(--text-faint); font-size: 11px; text-align: center; }
 .review-markdown { color: var(--text-secondary); font-size: 12px; line-height: 1.7; }
 .review-markdown h1 { margin: 0 0 14px; font-size: 19px; }
@@ -399,6 +401,9 @@ button.status-pill:hover .status-refresh-icon { opacity: .9; }
 .answer-box { flex: 1; min-height: 0; overflow-y: auto; }
 .box-label { display: block; margin-bottom: 8px; color: var(--text-faint); font-size: 9px; font-weight: 800; letter-spacing: .12em; }
 .transcript-box p, .answer-box p { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+/* 面试官这一段没识别到：用警示色说清楚，别让人以为面试官没说话 */
+.transcript-box p.transcript-unrecognized { display: flex; align-items: flex-start; gap: 6px; color: var(--warning); }
+.transcript-box p.transcript-unrecognized svg { flex: 0 0 auto; margin-top: 3px; }
 .answer-box p + p { margin-top: 9px; }
 .answer-box ul, .answer-box ol { padding-left: 20px; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
 .answer-box code { color: var(--accent-text); }

@@ -31,7 +31,7 @@ interface RawAsrUtterance {
   end_time?: number
 }
 
-interface AsrResponse {
+export interface AsrResponse {
   code?: number
   message?: string
   result?: {
@@ -42,6 +42,61 @@ interface AsrResponse {
   is_final?: boolean
   final?: boolean
   definite?: boolean
+}
+
+/** 把服务端分句的相对时间换算成「从这段音频开始算起」的毫秒 */
+export function mapUtteranceTiming(
+  utterance: RawAsrUtterance | undefined,
+  connectionBaseMs: number,
+): AsrUtteranceTiming | undefined {
+  if (!utterance || typeof utterance.start_time !== 'number' || typeof utterance.end_time !== 'number') {
+    return undefined
+  }
+  return {
+    startMs: connectionBaseMs + utterance.start_time,
+    endMs: connectionBaseMs + utterance.end_time,
+  }
+}
+
+/** 一帧服务端响应翻译成的动作 */
+export type AsrFrameOutcome =
+  | { kind: 'ignore' }
+  | { kind: 'segment-end'; text: string; timing?: AsrUtteranceTiming }
+  | { kind: 'unrecognized'; timing?: AsrUtteranceTiming }
+  | { kind: 'final'; text: string; timing?: AsrUtteranceTiming }
+  | { kind: 'partial'; text: string; timing?: AsrUtteranceTiming }
+
+/**
+ * 把一帧服务端响应翻译成「该做什么」。
+ *
+ * 单独抽成纯函数，是因为这里出过一个很隐蔽的 bug：拿不到分句时曾经
+ * 退回 `result.text`，而系统音频是一条从面试开始挂到结束的长连接，
+ * 那是整场对话的累计文本——一触发就把十几分钟的内容当成一道题送进了
+ * 模型。所以这里**只认 `utterances`**，`result.text` / `body.text`
+ * 一个字都不看。这个决定值得被测试钉死。
+ *
+ * @param latestText 这段音频里最近一次拿到的分句文本，只在结算时文本为空的情况下兜一下
+ */
+export function interpretServerFrame(
+  body: AsrResponse,
+  isLastPackage: boolean,
+  connectionBaseMs: number,
+  latestText: string,
+): AsrFrameOutcome {
+  const lastUtterance = body.result?.utterances?.at(-1)
+  const text = (lastUtterance?.text ?? '').trim()
+  const timing = mapUtteranceTiming(lastUtterance, connectionBaseMs)
+
+  // 服务端最后一包：这一段识别完毕，即使文本为空也要结算，否则会话会一直停在收尾态
+  if (isLastPackage) return { kind: 'segment-end', text: text || latestText, timing }
+
+  const final = Boolean(lastUtterance?.definite || body.is_final || body.final || body.definite)
+  if (!text) {
+    // 没有分句是常态（静音帧也没有），只有服务端明确说「这句完了」
+    // 才算真的没识别到，否则每帧都会刷一条占位。
+    return final ? { kind: 'unrecognized', timing } : { kind: 'ignore' }
+  }
+  return final ? { kind: 'final', text, timing } : { kind: 'partial', text, timing }
 }
 
 /**
@@ -81,6 +136,8 @@ export interface DoubaoAsrCallbacks {
   onFinal: (text: string, timing?: AsrUtteranceTiming) => void
   /** 服务端返回最后一包（is_last_package），表示这一段音频已经识别完毕 */
   onSegmentEnd: (text: string, timing?: AsrUtteranceTiming) => void
+  /** 服务端判停了，却没有任何分句文本：这一段是真的没识别到 */
+  onUnrecognized: (timing?: AsrUtteranceTiming) => void
   onState: (
     state: 'connected' | 'reconnecting' | 'error' | 'idle',
     message?: string,
@@ -348,30 +405,25 @@ export class DoubaoAsr {
       }
       if (response.type !== MESSAGE_FULL_SERVER_RESPONSE || !response.body) return
 
-      const utterances = response.body.result?.utterances ?? []
-      const lastUtterance = utterances.at(-1)
-      // 优先取「最后一个分句」的文本，而不是 result.text。
-      // result.text 是整条连接的累计文本：系统音频是长连接，
-      // 用它会把这十几分钟说过的话全部当成一个问题送进模型。
-      // 按住说话一段一条连接，两者等价；分句缺失时才退回累计文本。
-      const text = (lastUtterance?.text || response.body.result?.text || response.body.text || '').trim()
-      const timing = this.mapTiming(lastUtterance)
-      // 服务端最后一包：这一段识别完毕，即使文本为空也要结算，否则会话会一直停在收尾态
-      if (response.isLastPackage) {
-        this.callbacks.onSegmentEnd(text || this.latestText, timing)
+      const outcome = interpretServerFrame(
+        response.body,
+        response.isLastPackage,
+        this.connectionBaseMs,
+        this.latestText,
+      )
+      if (outcome.kind === 'ignore') return
+      if (outcome.kind === 'segment-end') {
+        this.callbacks.onSegmentEnd(outcome.text, outcome.timing)
         this.latestText = ''
         return
       }
-      if (!text) return
-      this.latestText = text
-      const final = Boolean(
-        lastUtterance?.definite ||
-          response.body.is_final ||
-          response.body.final ||
-          response.body.definite,
-      )
-      if (final) this.finalize(text, timing)
-      else this.callbacks.onPartial(text)
+      if (outcome.kind === 'unrecognized') {
+        this.callbacks.onUnrecognized(outcome.timing)
+        return
+      }
+      this.latestText = outcome.text
+      if (outcome.kind === 'final') this.finalize(outcome.text, outcome.timing)
+      else this.callbacks.onPartial(outcome.text)
     } catch (error) {
       log.error('解析豆包 ASR 消息失败', error)
     }
@@ -419,16 +471,6 @@ export class DoubaoAsr {
       this.latestText = ''
       this.callbacks.onFinal(settled, settledTiming)
     }, SEGMENT_SETTLE_MS)
-  }
-
-  private mapTiming(utterance?: RawAsrUtterance): AsrUtteranceTiming | undefined {
-    if (!utterance || typeof utterance.start_time !== 'number' || typeof utterance.end_time !== 'number') {
-      return undefined
-    }
-    return {
-      startMs: this.connectionBaseMs + utterance.start_time,
-      endMs: this.connectionBaseMs + utterance.end_time,
-    }
   }
 
   private scheduleReconnect(): void {
@@ -520,6 +562,7 @@ export async function testDoubaoConnection(settings: AppSettings): Promise<void>
     onPartial: () => undefined,
     onFinal: () => undefined,
     onSegmentEnd: () => undefined,
+    onUnrecognized: () => undefined,
     onState: (state, message) => {
       if (state === 'error') failure = new Error(message || '豆包语音连接失败')
     },

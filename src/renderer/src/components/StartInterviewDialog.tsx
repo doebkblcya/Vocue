@@ -84,7 +84,7 @@ export function StartInterviewDialog({
               onClick={() => setMode('microphone')}
             >
               <Mic size={22} />
-              <span><strong>按住说话</strong><small>按住回答窗中的按钮说话，松开后生成回答</small></span>
+              <span><strong>按住说话</strong><small>按住按钮听面试官提问，松开后生成回答</small></span>
             </button>
           </div>
 

@@ -351,8 +351,14 @@ export class InterviewSession extends EventEmitter<{
       this.safetyTimer = null
       if (this.state.status !== 'finalizing') return
       const text = this.state.partialTranscript.trim()
-      if (text) this.handleFinalTranscript(text)
-      else this.patchState({ status: this.idleStatus(), partialTranscript: '' })
+      if (text) {
+        this.handleFinalTranscript(text)
+      } else {
+        // 没有文本可结算，但这条连接已经被判停、不再收新音频。
+        // 必须主动释放，否则下一次按下会复用它，把整段音频无声丢掉。
+        this.asr?.markIdle()
+        this.patchState({ status: this.idleStatus(), partialTranscript: '' })
+      }
     }, SEGMENT_SAFETY_TIMEOUT_MS)
   }
 

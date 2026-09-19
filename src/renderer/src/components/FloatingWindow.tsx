@@ -35,13 +35,17 @@ export function FloatingWindow(): React.JSX.Element {
 
   const setRecording = useCallback(async (active: boolean): Promise<void> => {
     if (session.mode !== 'microphone') return
+    // 上一段还在结算时不许开新的一段：那条连接的「句号」已经画过了，
+    // 再按下去音频只会被无声丢掉。等胶囊回到「服务正常」再按。
+    // 守卫放在这里而不是按钮上，是因为空格键不经过按钮。
+    if (active && session.status === 'finalizing') return
     try {
       setMicError('')
       await microphoneCapture.setSending(active)
     } catch (error) {
       setMicError(getErrorMessage(error))
     }
-  }, [session.mode])
+  }, [session.mode, session.status])
 
   const stopAndClose = async (): Promise<void> => {
     try {
@@ -334,6 +338,8 @@ export function FloatingWindow(): React.JSX.Element {
             {session.mode === 'microphone' && (
               <button
                 className={`push-to-talk no-drag ${session.microphoneActive ? 'active' : ''}`}
+                disabled={session.status === 'finalizing'}
+                title={session.status === 'finalizing' ? '上一句还在识别，稍等再按' : undefined}
                 onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); void setRecording(true) }}
                 onPointerUp={() => void setRecording(false)}
                 onPointerCancel={() => void setRecording(false)}
@@ -345,7 +351,7 @@ export function FloatingWindow(): React.JSX.Element {
                     ? '正在识别刚才这句话…'
                     : session.generating
                       ? '打断并提问'
-                      : '按住说话'}
+                      : '按住听题'}
               </button>
             )}
           </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { STAGE_CHOICES, formatStage, nextStage } from '../src/shared/stage'
+import { formatStage, nextStage, previousStage } from '../src/shared/stage'
 
 describe('面试阶段', () => {
   it('按序数显示成可读文案', () => {
@@ -24,19 +24,17 @@ describe('面试阶段', () => {
     expect(formatStage(nextStage(null))).toBe('AI 面')
   })
 
-  it('可选项覆盖 AI 面与一至十面', () => {
-    expect(STAGE_CHOICES.map(formatStage)).toEqual([
-      'AI 面',
-      '一面',
-      '二面',
-      '三面',
-      '四面',
-      '五面',
-      '六面',
-      '七面',
-      '八面',
-      '九面',
-      '十面',
-    ])
+  it('退回一轮：二面 → 一面 → AI 面 → 未设置', () => {
+    expect(previousStage(2)).toBe(1)
+    expect(previousStage(1)).toBe(0)
+    expect(previousStage(0)).toBeNull()
+    // 已经是未设置就停在未设置，不会绕回高轮次
+    expect(previousStage(null)).toBeNull()
+  })
+
+  it('加减互为逆操作', () => {
+    for (const stage of [null, 0, 1, 5, 20] as const) {
+      expect(previousStage(nextStage(stage))).toBe(stage)
+    }
   })
 })

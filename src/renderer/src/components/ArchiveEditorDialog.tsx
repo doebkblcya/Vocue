@@ -1,10 +1,11 @@
 import { FileText, Trash2, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { STAGE_CHOICES, formatStage, type InterviewStage } from '../../../shared/stage'
+import type { InterviewStage } from '../../../shared/stage'
 import type { LibraryDocumentSummary } from '../../../shared/types'
 import { describeUsage } from '../document-usage'
 import { getErrorMessage } from '../error-message'
 import { LibraryPickerDialog } from './LibraryPickerDialog'
+import { StageStepper } from './StageStepper'
 
 interface Draft {
   id?: string
@@ -219,20 +220,12 @@ export function ArchiveEditorDialog({
                 <div className="archive-field-head">
                   <label>面试阶段</label>
                 </div>
-                <select
-                  value={draft.stage === null ? 'none' : String(draft.stage)}
-                  onChange={(event) => setDraft({
-                    ...draft,
-                    stage: event.target.value === 'none' ? null : Number(event.target.value),
-                  })}
-                >
-                  <option value="none">未设置</option>
-                  {STAGE_CHOICES.map((stage) => (
-                    <option key={stage} value={stage}>{formatStage(stage)}</option>
-                  ))}
-                </select>
+                <StageStepper
+                  stage={draft.stage}
+                  onChange={(stage) => setDraft((current) => ({ ...current, stage }))}
+                />
                 <p className="archive-field-hint">
-                  推进到下一轮就在这里改；档案卡上点阶段也能直接推进一轮。
+                  推进到下一轮就在这里加减；档案卡上点阶段也能直接推进一轮。
                 </p>
               </div>
 

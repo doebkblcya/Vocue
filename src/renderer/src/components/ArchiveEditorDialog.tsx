@@ -69,8 +69,34 @@ export function ArchiveEditorDialog({
   const summaryOf = (id: string): LibraryDocumentSummary | undefined =>
     library.find((document) => document.id === id)
 
-  /** 直接在档案里上传：先入库，再把新文档挂到这份档案上 */
-  const uploadDocuments = async (files: FileList | null): Promise<void> => {
+  /**
+   * 直接在档案里上传简历：先按「简历」收进文档库，再挂到这份档案上。
+   * 上传即入库，所以其他档案也能直接复用这一份。
+   */
+  const uploadResume = async (files: FileList | null): Promise<void> => {
+    const file = files?.[0]
+    if (!file) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const extracted = await window.vocue.documents.extract(
+        file.name,
+        new Uint8Array(await file.arrayBuffer()),
+      )
+      const saved = await window.vocue.library.add(extracted, 'resume')
+      await refreshLibrary()
+      setDraft((current) => ({ ...current, resumeDocumentId: saved.id }))
+      setNotice(`「${saved.filename}」${describeUsage(saved.content.length).text}，已存入文档库 · 简历`)
+    } catch (reason) {
+      setError(getErrorMessage(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 直接在档案里上传补充资料：同样先按「文档」入库，再挂到这份档案上 */
+  const uploadMaterials = async (files: FileList | null): Promise<void> => {
     if (!files?.length) return
     setBusy(true)
     setError('')
@@ -90,7 +116,7 @@ export function ArchiveEditorDialog({
       }
       await refreshLibrary()
       setDraft((current) => ({ ...current, documentIds: [...current.documentIds, ...addedIds] }))
-      setNotice(messages.join('；'))
+      setNotice(`${messages.join('；')}，已存入文档库 · 文档`)
     } catch (reason) {
       setError(getErrorMessage(reason))
     } finally {
@@ -213,13 +239,26 @@ export function ArchiveEditorDialog({
               <div className="archive-field">
                 <div className="archive-field-head">
                   <label>我的简历</label>
-                  <button
-                    className="button secondary small"
-                    disabled={busy}
-                    onClick={() => setPicker('resume')}
-                  >
-                    从文档库选择
-                  </button>
+                  <div className="archive-field-actions">
+                    <label className="inline-upload">
+                      <Upload size={13} />上传新简历
+                      <input
+                        type="file"
+                        accept=".pdf,.md,.markdown,.txt"
+                        onChange={(event) => {
+                          void uploadResume(event.target.files)
+                          event.currentTarget.value = ''
+                        }}
+                      />
+                    </label>
+                    <button
+                      className="button secondary small"
+                      disabled={busy}
+                      onClick={() => setPicker('resume')}
+                    >
+                      从文档库选择
+                    </button>
+                  </div>
                 </div>
                 <div className={`archive-picked ${resume ? '' : 'empty'}`}>
                   <span className="library-row-icon"><FileText size={16} /></span>
@@ -232,7 +271,7 @@ export function ArchiveEditorDialog({
                     ) : (
                       <>
                         <strong>未选择简历</strong>
-                        <small>先到「文档库 · 简历」上传一份，之后可以跨岗位复用。</small>
+                        <small>从文档库选一份，或直接上传新简历。</small>
                       </>
                     )}
                   </span>
@@ -246,6 +285,9 @@ export function ArchiveEditorDialog({
                     </button>
                   )}
                 </div>
+                <p className="archive-field-hint">
+                  上传的简历会自动收进「文档库 · 简历」；「从文档库选择」里只列简历。
+                </p>
               </div>
 
               <div className="archive-field">
@@ -253,13 +295,13 @@ export function ArchiveEditorDialog({
                   <label>补充资料</label>
                   <div className="archive-field-actions">
                     <label className="inline-upload">
-                      <Upload size={13} />上传新文件
+                      <Upload size={13} />上传新文档
                       <input
                         type="file"
                         multiple
                         accept=".pdf,.md,.markdown,.txt"
                         onChange={(event) => {
-                          void uploadDocuments(event.target.files)
+                          void uploadMaterials(event.target.files)
                           event.currentTarget.value = ''
                         }}
                       />
@@ -292,6 +334,9 @@ export function ArchiveEditorDialog({
                   })}
                   {!draft.documentIds.length && <span className="empty-chip">没有补充资料</span>}
                 </div>
+                <p className="archive-field-hint">
+                  上传的文档会自动收进「文档库 · 文档」；「从文档库选择」里只列文档。
+                </p>
               </div>
 
               {notice && <div className="notice notice-success">{notice}</div>}

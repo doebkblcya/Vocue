@@ -125,9 +125,10 @@ export const PUSH_TO_TALK_PARAMS: DoubaoAsrParams = {
 
 export const SYSTEM_AUDIO_PARAMS: DoubaoAsrParams = {
   enableNonstream: true,
-  // 官方推荐区间 800~1000，这里取更保守的值：
-  // 面试官常常边想边说，宁可多等一点，也不要一句话被切两半。
-  endWindowSize: 1200,
+  // 官方推荐值 [800,1000]，取上限：
+  // 面试官常常边想边说，停顿很容易超过这个数，所以在推荐范围内尽量往长取，
+  // 少切半句；再往上就出了推荐区间，官方不建议。
+  endWindowSize: 1000,
   forceToSpeechTime: 1000,
 }
 
@@ -150,21 +151,12 @@ export interface AsrUtteranceTiming {
   endMs: number
 }
 
-/**
- * definite 到达后再等一小会儿才取用。
- * 服务端有时会把同一段连续判停成一串 definite，等文本落定再提问，
- * 避免拿半句话去生成回答（做法与成熟实现一致）。
- */
-const SEGMENT_SETTLE_MS = 1000
-
 export class DoubaoAsr {
   private socket: WebSocket | null = null
   private desiredConnected = false
   private reconnectAttempts = 0
   private reconnectTimer: NodeJS.Timeout | null = null
   private latestText = ''
-  private lastFinal = ''
-  private lastFinalAt = 0
   /** 当前这一段的包序号，配置包占 1，音频包从 2 起递增 */
   private sequence = FULL_CLIENT_REQUEST_SEQ
   /** 是否已经发出过最后一包，避免重复发送 */
@@ -175,11 +167,6 @@ export class DoubaoAsr {
    * 避免「你没按按钮却在反复重连」。
    */
   private idleDispose = false
-  /** definite 之后等文本落定的计时器 */
-  private settleTimer: NodeJS.Timeout | null = null
-  /** 最近一条 definite 分句的文本：它是服务端锁定的结果，优先于中间稿 */
-  private definiteText = ''
-  private definiteTiming: AsrUtteranceTiming | undefined
   /** 已实际送入服务端的音频时长，用于把重连后的相对时间戳接回整场时间线。 */
   private totalAudioBytes = 0
   private connectionBaseMs = 0
@@ -421,56 +408,31 @@ export class DoubaoAsr {
         this.callbacks.onUnrecognized(outcome.timing)
         return
       }
+      // 判停即提问，不作缓冲。
+      //
+      // 这里原来会把文本存进一个变量、再等 1 秒才用，理由是「等同一段连续
+      // 判停落定」。可那个变量一次只装得下一句：两次判停挨得近时，后一句
+      // 直接覆盖前一句，被覆盖的那句永远不被显示、保存或提问。而判停之间
+      // 至少隔着 end_window_size 的静音，本来就分得开，不需要再等。
+      if (outcome.kind === 'final') {
+        this.latestText = ''
+        this.callbacks.onFinal(outcome.text, outcome.timing)
+        return
+      }
       this.latestText = outcome.text
-      if (outcome.kind === 'final') this.finalize(outcome.text, outcome.timing)
-      else this.callbacks.onPartial(outcome.text)
+      this.callbacks.onPartial(outcome.text)
     } catch (error) {
       log.error('解析豆包 ASR 消息失败', error)
     }
   }
 
-  /** 重置当前段落的序号、文本与落定计时（每次新连接都会调） */
+  /** 清空当前段落的文本与中间稿（每次新连接都会调） */
   private resetSegment(): void {
-    if (this.settleTimer) clearTimeout(this.settleTimer)
-    this.settleTimer = null
-    this.definiteText = ''
-    this.definiteTiming = undefined
     this.connectionBaseMs = this.totalAudioBytes / 32
     this.generation += 1
     this.sequence = FULL_CLIENT_REQUEST_SEQ
     this.finished = false
     this.latestText = ''
-  }
-
-  /**
-   * 服务端判停（definite）后调用。
-   *
-   * 不立刻取用，而是把文本存入 definiteText 并重置一个短计时器：
-   * 服务端有时会把同一段连续判停成一串 definite，
-   * 等它落定再提问，避免拿半句话去生成回答。
-   * definiteText 是服务端锁定的分句结果，优先于中间稿 latestText。
-   */
-  private finalize(text: string, timing?: AsrUtteranceTiming): void {
-    const normalized = text.trim()
-    if (normalized) {
-      this.definiteText = normalized
-      this.definiteTiming = timing
-    }
-    if (this.settleTimer) clearTimeout(this.settleTimer)
-    this.settleTimer = setTimeout(() => {
-      this.settleTimer = null
-      const settled = (this.definiteText || this.latestText).trim()
-      const settledTiming = this.definiteTiming
-      this.definiteText = ''
-      this.definiteTiming = undefined
-      if (!settled) return
-      const now = Date.now()
-      if (settled === this.lastFinal && now - this.lastFinalAt < 5000) return
-      this.lastFinal = settled
-      this.lastFinalAt = now
-      this.latestText = ''
-      this.callbacks.onFinal(settled, settledTiming)
-    }, SEGMENT_SETTLE_MS)
   }
 
   private scheduleReconnect(): void {

@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events'
 import {
   createInitialInterviewSessionState,
+  type AnswerLogEntry,
   type AudioMode,
   type InterviewSessionState,
 } from '../../shared/types'
@@ -48,7 +49,10 @@ function contentLength(content: MessageContent): number {
   return content.reduce((sum, part) => sum + (part.type === 'text' ? part.text.length : 0), 0)
 }
 
-export class InterviewSession extends EventEmitter<{ state: [InterviewSessionState] }> {
+export class InterviewSession extends EventEmitter<{
+  state: [InterviewSessionState]
+  'answer-log': [AnswerLogEntry[]]
+}> {
   private state: InterviewSessionState = createInitialInterviewSessionState()
   private asr: DoubaoAsr | null = null
   /** 系统音频模式下，第二条相同的流式 ASR 专门记录候选人的麦克风。 */
@@ -59,6 +63,13 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
   private systemPrompt = ''
   /** 临时沿用 Bready 风格：最多保留 4 轮问题与 AI 建议回答。 */
   private history: ChatMessage[] = []
+  /**
+   * 已完成的问答，只给悬浮窗回看用。只增不减。
+   *
+   * 和 history 分开：history 会被 6 万字预算淘汰最旧的，而回看不该因为
+   * 篇幅被裁掉；两者服务的目的不一样。
+   */
+  private answerLog: AnswerLogEntry[] = []
   private answerAbort: AbortController | null = null
   /** 每次收到新问题都会递增；旧回答的迟到流片段据此失效。 */
   private answerGeneration = 0
@@ -74,7 +85,6 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
   private stopping = false
   private interviewerFinishResolve: (() => void) | null = null
   private candidateFinishResolve: (() => void) | null = null
-  private readonly lastRecorded = new Map<'interviewer' | 'candidate', { text: string; endMs: number }>()
 
   constructor(
     private readonly database: LocalDatabase,
@@ -97,6 +107,8 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
     this.systemPrompt = buildCurrentInterviewSystemPrompt(preparation)
     this.deepseek = new DeepSeekClient(config)
     this.history = []
+    this.answerLog = []
+    this.emit('answer-log', [])
     this.systemAudioProcessor.reset()
     this.patchState({
       status: 'connecting',
@@ -129,7 +141,6 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
         this.activeRecordId = record.id
         this.recordStartedAt = Date.now()
         this.recordIssue = null
-        this.lastRecorded.clear()
         this.patchState({
           status: 'listening',
           recordingTranscript: true,
@@ -217,7 +228,6 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
     this.activeRecordId = null
     this.recordStartedAt = 0
     this.recordIssue = null
-    this.lastRecorded.clear()
     this.stopping = false
     this.patchState({
       status: 'idle',
@@ -516,6 +526,13 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
     this.patchState({ finalTranscript: UNRECOGNIZED_SPEECH, partialTranscript: '' })
   }
 
+  /**
+   * 面试官说了什么，就记什么。
+   *
+   * 这里原来还有一道「同一句话 5 秒内不记第二遍」的去重。删掉它是因为
+   * 音频才是事实来源：服务端判停几次就是几句，不替它猜哪句是重复的。
+   * 真出现重复，屏幕上能当场看见；被静默吃掉的那句，事后翻记录也找不回来。
+   */
   private recordUtterance(
     role: 'interviewer' | 'candidate',
     text: string,
@@ -527,10 +544,7 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
     const fallbackEnd = Math.max(0, Date.now() - this.recordStartedAt)
     const endMs = timing?.endMs ?? fallbackEnd
     const startMs = timing?.startMs ?? Math.max(0, endMs - Math.max(600, normalized.length * 120))
-    const previous = this.lastRecorded.get(role)
-    if (previous?.text === normalized && Math.abs(previous.endMs - endMs) < 5000) return
     this.database.appendInterviewUtterance({ sessionId, role, text: normalized, startMs, endMs })
-    this.lastRecorded.set(role, { text: normalized, endMs })
   }
 
   private requestAnswer(question: string, userContent?: MessageContent): void {
@@ -596,11 +610,19 @@ export class InterviewSession extends EventEmitter<{ state: [InterviewSessionSta
       )
       this.trimHistory()
       const parsed = parseInterviewAnswer(completed)
+      this.answerLog.push({
+        question,
+        answer: completed,
+        summary: parsed.summary,
+        detail: parsed.detail,
+      })
       this.patchState({
         answer: completed,
         answerSummary: parsed.summary,
         answerDetail: parsed.detail,
       })
+      // 只在一条回答真正完成时才发，不跟着流式的每一小段发
+      this.emit('answer-log', [...this.answerLog])
     } finally {
       // 旧请求的 finally 不能覆盖新请求的生成状态。
       if (generation === this.answerGeneration) {

@@ -366,11 +366,12 @@ button.titlebar-session:hover { background: var(--surface-hover); }
 .picker-copy small { color: var(--text-faint); font-size: 10px; }
 .picker-copy small.warn { color: var(--warning); }
 .picker-empty { display: grid; justify-items: center; gap: 10px; padding: 30px 20px; color: var(--text-faint); font-size: 12px; line-height: 1.6; text-align: center; }
-.paste-confirm-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: var(--overlay); backdrop-filter: blur(8px); }
-.paste-confirm-card { width: min(390px, 100%); padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: 0 24px 80px var(--shadow-strong); }
-.paste-confirm-card h3 { margin: 0 0 8px; font-size: 17px; }
-.paste-confirm-card p { margin: 0 0 20px; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
-.paste-confirm-card > div { display: flex; justify-content: flex-end; gap: 8px; }
+.confirm-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: var(--overlay); backdrop-filter: blur(8px); }
+.confirm-card { width: min(390px, 100%); padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: 0 24px 80px var(--shadow-strong); }
+.confirm-card h3 { margin: 0 0 8px; font-size: 17px; }
+.confirm-card p { margin: 0 0 20px; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
+.confirm-card p strong { color: var(--text); }
+.confirm-card > div { display: flex; justify-content: flex-end; gap: 8px; }
 .document-chips { min-height: 40px; display: flex; flex-wrap: wrap; gap: 7px; }
 .document-chips > span { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px 0 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--text-muted); background: var(--surface-subtle); font-size: 12px; }
 .document-chips span.empty-chip { border-style: dashed; color: var(--text-faint); }

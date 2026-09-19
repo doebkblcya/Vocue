@@ -1,10 +1,11 @@
 import { FileText, FolderPlus, Home, Library, Play, Settings, Square } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { nextStage } from '../../../shared/stage'
+import { formatStage, nextStage } from '../../../shared/stage'
 import type { AudioMode, InterviewRecordSummary, PreparationSummary } from '../../../shared/types'
 import { useSessionState } from '../hooks'
 import { ArchiveCard } from './ArchiveCard'
 import { ArchiveEditorDialog } from './ArchiveEditorDialog'
+import { ConfirmDialog } from './ConfirmDialog'
 import { LibraryView } from './LibraryView'
 import { PageHeader } from './PageHeader'
 import { StartInterviewDialog } from './StartInterviewDialog'
@@ -24,6 +25,8 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
   const [startOpen, setStartOpen] = useState(false)
   const [startPreparationId, setStartPreparationId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null | undefined>(undefined)
+  /** 待确认的「推进一轮」目标；点档案卡上的阶段只是打开确认，不直接改 */
+  const [pendingAdvance, setPendingAdvance] = useState<PreparationSummary | null>(null)
   const session = useSessionState()
 
   const refresh = async (): Promise<void> => {
@@ -250,7 +253,7 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
                         preparation={preparation}
                         onEdit={() => setEditingId(preparation.id)}
                         onStart={() => openStart(preparation.id)}
-                        onAdvanceStage={() => void advanceStage(preparation)}
+                        onAdvanceStage={() => setPendingAdvance(preparation)}
                       />
                     ))}
                   </div>
@@ -286,7 +289,7 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
                       preparation={preparation}
                       onEdit={() => setEditingId(preparation.id)}
                       onStart={() => openStart(preparation.id)}
-                      onAdvanceStage={() => void advanceStage(preparation)}
+                      onAdvanceStage={() => setPendingAdvance(preparation)}
                     />
                   ))}
                 </div>
@@ -319,6 +322,26 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
           preparationId={editingId}
           onClose={() => setEditingId(undefined)}
           onSaved={refresh}
+        />
+      )}
+      {pendingAdvance && (
+        <ConfirmDialog
+          title="推进面试阶段？"
+          description={(
+            <>
+              「<strong>{pendingAdvance.name}</strong>」将从{' '}
+              <strong>{formatStage(pendingAdvance.stage)}</strong> 推进到{' '}
+              <strong>{formatStage(nextStage(pendingAdvance.stage))}</strong>。
+              推错了可以在「编辑档案」里退回来。
+            </>
+          )}
+          confirmLabel={`推进到${formatStage(nextStage(pendingAdvance.stage))}`}
+          onCancel={() => setPendingAdvance(null)}
+          onConfirm={() => {
+            const preparation = pendingAdvance
+            setPendingAdvance(null)
+            void advanceStage(preparation)
+          }}
         />
       )}
     </main>

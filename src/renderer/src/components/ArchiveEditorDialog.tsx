@@ -4,6 +4,7 @@ import type { InterviewStage } from '../../../shared/stage'
 import type { LibraryDocumentSummary } from '../../../shared/types'
 import { describeUsage } from '../document-usage'
 import { getErrorMessage } from '../error-message'
+import { ConfirmDialog } from './ConfirmDialog'
 import { LibraryPickerDialog } from './LibraryPickerDialog'
 import { StageStepper } from './StageStepper'
 
@@ -407,30 +408,17 @@ export function ArchiveEditorDialog({
       )}
 
       {pendingJobImage && (
-        <div className="paste-confirm-backdrop">
-          <section
-            className="paste-confirm-card"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="paste-confirm-title"
-          >
-            <h3 id="paste-confirm-title">识别剪贴板图片？</h3>
-            <p>将图片发送至 DeepSeek，提取岗位信息并添加到 JD。</p>
-            <div>
-              <button className="button ghost" onClick={() => setPendingJobImage(null)}>取消</button>
-              <button
-                className="button primary"
-                onClick={() => {
-                  const image = pendingJobImage
-                  setPendingJobImage(null)
-                  void importJobImage(image)
-                }}
-              >
-                识别并添加
-              </button>
-            </div>
-          </section>
-        </div>
+        <ConfirmDialog
+          title="识别剪贴板图片？"
+          description="将图片发送至 DeepSeek，提取岗位信息并添加到 JD。"
+          confirmLabel="识别并添加"
+          onCancel={() => setPendingJobImage(null)}
+          onConfirm={() => {
+            const image = pendingJobImage
+            setPendingJobImage(null)
+            void importJobImage(image)
+          }}
+        />
       )}
     </div>
   )

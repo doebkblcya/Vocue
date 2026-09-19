@@ -4,6 +4,20 @@ import { toUserMessage } from '../../shared/error-message'
 export const DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
 export const DEEPSEEK_MODEL = 'deepseek-flash'
 
+/** 面试实时回答：首字等这么久还不出来，这一轮就已经废了，早点报错比干等好 */
+export const FIRST_TOKEN_TIMEOUT_MS = 8_000
+/** 面试实时回答的整体上限。纯安全网：一旦开始出字，用户已经在读了，掐断反而更亏 */
+export const STREAM_TIMEOUT_MS = 60_000
+/** 非流式调用的整体上限。复盘本来就慢，给宽一点 */
+export const COMPLETE_TIMEOUT_MS = 120_000
+/**
+ * 面试实时回答的输出上限。提示词要求约 310 个汉字（约 250 token），
+ * 2048 留足思考空间，同时挡住失控的长篇大论。
+ *
+ * 注意：**不要**套到复盘生成上——复盘正文实测有 3022 字，套上会被拦腰截断。
+ */
+export const ANSWER_MAX_TOKENS = 2_048
+
 export type MessageContent =
   | string
   | Array<
@@ -28,16 +42,31 @@ export class DeepSeekClient {
     messages: ChatMessage[],
     options?: { json?: boolean; thinkingEffort?: AppSettings['thinkingEffort'] },
   ): Promise<string> {
-    const response = await this.request({
-      messages,
-      stream: false,
-      json: options?.json,
-      thinkingEffort: options?.thinkingEffort,
-    })
-    const data = (await response.json()) as ChatCompletionResponse
-    const content = data.choices?.[0]?.message?.content
-    if (!content) throw new Error(data.error?.message || 'DeepSeek 没有返回内容')
-    return content
+    const controller = new AbortController()
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, COMPLETE_TIMEOUT_MS)
+    try {
+      const response = await this.request({
+        messages,
+        stream: false,
+        json: options?.json,
+        thinkingEffort: options?.thinkingEffort,
+      }, controller.signal)
+      const data = (await response.json()) as ChatCompletionResponse
+      const content = data.choices?.[0]?.message?.content
+      if (!content) throw new Error(data.error?.message || 'DeepSeek 没有返回内容')
+      return content
+    } catch (error) {
+      if (timedOut && (error as Error)?.name === 'AbortError') {
+        throw new Error('请求超时：模型响应时间过长，请重试')
+      }
+      throw error
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   async stream(
@@ -45,39 +74,76 @@ export class DeepSeekClient {
     onDelta: (delta: string) => void,
     signal?: AbortSignal,
   ): Promise<string> {
-    const response = await this.request({ messages, stream: true }, signal)
-    if (!response.body) throw new Error('DeepSeek 流式响应不可用')
+    const controller = new AbortController()
+    let timedOut = ''
+    // 调用方取消（来了新问题、面试结束）要能立刻传下去
+    const forwardAbort = (): void => controller.abort()
+    signal?.addEventListener('abort', forwardAbort, { once: true })
 
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let result = ''
+    // 首字超时：只盯「迟迟不出字」。一旦出了第一个字就撤掉，
+    // 后面交给整体上限兜着——已经在读的内容不该被掐。
+    let started = false
+    const firstTokenTimer = setTimeout(() => {
+      if (started) return
+      timedOut = '生成超时：模型迟迟没有返回内容，请重试'
+      controller.abort()
+    }, FIRST_TOKEN_TIMEOUT_MS)
+    const overallTimer = setTimeout(() => {
+      timedOut = '生成超时：回答时间过长，已中止'
+      controller.abort()
+    }, STREAM_TIMEOUT_MS)
 
-    while (true) {
-      const { done, value } = await reader.read()
-      buffer += decoder.decode(value, { stream: !done })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      for (const rawLine of lines) {
-        const line = rawLine.trim()
-        if (!line.startsWith('data:')) continue
-        const payload = line.slice(5).trim()
-        if (!payload || payload === '[DONE]') continue
-        const event = JSON.parse(payload) as {
-          choices?: Array<{ delta?: { content?: string } }>
-          error?: { message?: string }
-        }
-        // 流中途返回的错误同样不适合直接上界面，统一翻译
-        if (event.error?.message) throw new Error(toUserMessage(event.error.message))
-        const delta = event.choices?.[0]?.delta?.content ?? ''
-        if (delta) {
+    try {
+      const response = await this.request(
+        { messages, stream: true, maxTokens: ANSWER_MAX_TOKENS },
+        controller.signal,
+      )
+      if (!response.body) throw new Error('DeepSeek 流式响应不可用')
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let result = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        buffer += decoder.decode(value, { stream: !done })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const rawLine of lines) {
+          const line = rawLine.trim()
+          if (!line.startsWith('data:')) continue
+          const payload = line.slice(5).trim()
+          if (!payload || payload === '[DONE]') continue
+          const event = JSON.parse(payload) as {
+            choices?: Array<{ delta?: { content?: string } }>
+            error?: { message?: string }
+          }
+          // 流中途返回的错误同样不适合直接上界面，统一翻译
+          if (event.error?.message) throw new Error(toUserMessage(event.error.message))
+          const delta = event.choices?.[0]?.delta?.content ?? ''
+          if (!delta) continue
+          if (!started) {
+            started = true
+            clearTimeout(firstTokenTimer)
+          }
           result += delta
           onDelta(delta)
         }
+        if (done) break
       }
-      if (done) break
+      return result
+    } catch (error) {
+      // 我们自己的超时被 fetch 包成了 AbortError，换成能看懂的提示。
+      // 调用方主动取消时 timedOut 为空，AbortError 原样上抛，
+      // 上层靠它区分「被打断」和「真出错」。
+      if (timedOut && (error as Error)?.name === 'AbortError') throw new Error(timedOut)
+      throw error
+    } finally {
+      clearTimeout(firstTokenTimer)
+      clearTimeout(overallTimer)
+      signal?.removeEventListener('abort', forwardAbort)
     }
-    return result
   }
 
   async test(): Promise<void> {
@@ -118,6 +184,7 @@ export class DeepSeekClient {
       stream: boolean
       json?: boolean
       thinkingEffort?: AppSettings['thinkingEffort']
+      maxTokens?: number
     },
     signal?: AbortSignal,
   ): Promise<Response> {
@@ -139,6 +206,7 @@ export class DeepSeekClient {
           ? { reasoning_effort: thinkingEffort }
           : { temperature: 0.45 }),
         ...(input.json ? { response_format: { type: 'json_object' } } : {}),
+        ...(input.maxTokens ? { max_tokens: input.maxTokens } : {}),
       }),
       signal,
     })

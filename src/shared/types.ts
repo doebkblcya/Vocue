@@ -129,6 +129,20 @@ export interface InterviewSessionState {
   recordId: string | null
 }
 
+/**
+ * 一条已经生成的回答，供悬浮窗回看。
+ *
+ * 刻意**不放进** InterviewSessionState：state 在流式生成时每来一小段就会
+ * 广播一次，把整份历史挂上去等于每秒重发几十遍。这个列表只在一条回答
+ * 真正完成时才变，所以走自己的事件，走自己的通道。
+ */
+export interface AnswerLogEntry {
+  question: string
+  answer: string
+  summary: string
+  detail: string
+}
+
 export function createInitialInterviewSessionState(): InterviewSessionState {
   return {
     status: 'idle',
@@ -240,6 +254,7 @@ export interface VocueApi {
     reportRecordingProblem: (message: string) => Promise<void>
     sendMicrophoneAudio: (bytes: Uint8Array) => void
     onState: (callback: (state: InterviewSessionState) => void) => () => void
+    onAnswerLog: (callback: (entries: AnswerLogEntry[]) => void) => () => void
   }
   interviews: {
     list: () => Promise<InterviewRecordSummary[]>

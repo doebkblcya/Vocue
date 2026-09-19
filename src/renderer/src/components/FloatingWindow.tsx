@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
-import { GripHorizontal, Headphones, Mic, Minus, RefreshCw, ScanLine, Square, TriangleAlert } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ChevronDown, ChevronUp, ChevronsDown, GripHorizontal, Headphones, Mic, Minus, RefreshCw, ScanLine, Square, TriangleAlert } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { isUnrecognizedSpeech } from '../../../shared/transcript'
+import type { AnswerLogEntry } from '../../../shared/types'
 import { microphoneCapture } from '../audio/microphone'
 import { getErrorMessage } from '../error-message'
 import { useSessionState } from '../hooks'
@@ -15,6 +16,22 @@ export function FloatingWindow(): React.JSX.Element {
   const [capturingScreen, setCapturingScreen] = useState(false)
   /** 截屏会离开本机，先问一次；确认框统一走 ConfirmDialog */
   const [confirmScreenshot, setConfirmScreenshot] = useState(false)
+
+  /**
+   * 已完成的回答，由主进程在每条回答真正完成时才推一次。
+   *
+   * 生成照常在后台进行——界面显示哪一条完全不影响它。所以回看旧回答时，
+   * 新问题照问、新回答照生成，切过去就是当下的样子（可能只有半截）。
+   */
+  const [answerLog, setAnswerLog] = useState<AnswerLogEntry[]>([])
+  /** null = 看最新那条；数字 = 正在回看第几条 */
+  const [viewIndex, setViewIndex] = useState<number | null>(null)
+
+  useEffect(() => window.vocue.session.onAnswerLog((entries) => {
+    setAnswerLog(entries)
+    // 新的一场面试把列表清空了，回看位置也要跟着归零
+    if (!entries.length) setViewIndex(null)
+  }), [])
 
   const setRecording = useCallback(async (active: boolean): Promise<void> => {
     if (session.mode !== 'microphone') return
@@ -126,6 +143,56 @@ export function FloatingWindow(): React.JSX.Element {
   // 面试官这一段没识别到：如实说，不要让候选人误以为面试官没说话
   const unrecognized = isUnrecognizedSpeech(session.partialTranscript || session.finalTranscript)
 
+  // 「最新」当成排在最后一条之后的一格，这样回看时新回答到达不会把人挤走
+  const liveIndex = answerLog.length
+  const effectiveIndex = viewIndex === null ? liveIndex : Math.min(viewIndex, liveIndex)
+  const browsing = effectiveIndex < liveIndex
+  const shown = browsing ? answerLog[effectiveIndex] : null
+  const questionText = shown ? shown.question : session.partialTranscript || session.finalTranscript
+  const summaryText = shown ? shown.summary : session.answerSummary
+  const detailText = shown ? shown.detail : session.answerDetail
+
+  const goTo = (index: number): void => {
+    const clamped = Math.max(0, Math.min(index, answerLog.length))
+    setViewIndex(clamped >= answerLog.length ? null : clamped)
+  }
+
+  /**
+   * 面试官的话封顶之后要跟住最新——但只在用户本来就贴着底部时跟。
+   * 他往上翻看开头的时候，别每来一个字就把他拽回去。
+   */
+  const transcriptScroll = useRef<HTMLDivElement>(null)
+  const stickToBottom = useRef(true)
+
+  useEffect(() => {
+    const node = transcriptScroll.current
+    if (node && stickToBottom.current) node.scrollTop = node.scrollHeight
+  }, [questionText])
+
+  const handleTranscriptScroll = (): void => {
+    const node = transcriptScroll.current
+    if (!node) return
+    stickToBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 24
+  }
+
+  // 上下方向键只在悬浮窗有焦点时才收得到——刻意不注册全局快捷键，
+  // 否则等于把方向键从整个系统手里夺走。按钮才是主要入口，这只是补充。
+  useEffect(() => {
+    const keyDown = (event: KeyboardEvent): void => {
+      if (event.code !== 'ArrowUp' && event.code !== 'ArrowDown') return
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
+      if (!answerLog.length) return
+      event.preventDefault()
+      setViewIndex((current) => {
+        const at = current === null ? answerLog.length : Math.min(current, answerLog.length)
+        const next = Math.max(0, Math.min(event.code === 'ArrowUp' ? at - 1 : at + 1, answerLog.length))
+        return next >= answerLog.length ? null : next
+      })
+    }
+    window.addEventListener('keydown', keyDown)
+    return () => window.removeEventListener('keydown', keyDown)
+  }, [answerLog.length])
+
   const verifying = localVerifying || session.status === 'verifying'
   // 只有「能重新检测」时才把胶囊渲染成按钮。
   // 其余状态是普通元素，从根上避免 disabled 的灰化波及它们。
@@ -171,37 +238,77 @@ export function FloatingWindow(): React.JSX.Element {
 
         <section className="transcript-box">
           <span className="box-label">面试官</span>
-          {unrecognized ? (
-            <p className="transcript-unrecognized">
-              <TriangleAlert size={13} />
-              这一段没有识别到，可以请面试官重复一遍
-            </p>
-          ) : (
-            <p>{session.partialTranscript || session.finalTranscript || '等待问题…'}</p>
-          )}
+          <div className="transcript-scroll" ref={transcriptScroll} onScroll={handleTranscriptScroll}>
+            {unrecognized && !browsing ? (
+              <p className="transcript-unrecognized">
+                <TriangleAlert size={13} />
+                这一段没有识别到，可以请面试官重复一遍
+              </p>
+            ) : (
+              <p>{questionText || '等待问题…'}</p>
+            )}
+          </div>
         </section>
 
         <section className="answer-box">
-          {session.answerSummary && (
-            <div className="answer-summary">
-              <span className="box-label">先说这几点</span>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{session.answerSummary}</ReactMarkdown>
+          {answerLog.length > 0 && (
+            <div className="answer-nav">
+              <span className={`answer-nav-position ${browsing ? 'browsing' : ''}`}>
+                {browsing ? `${effectiveIndex + 1} / ${answerLog.length}` : '最新'}
+              </span>
+              <div className="answer-nav-buttons">
+                <button
+                  title="上一条回答（↑）"
+                  disabled={effectiveIndex <= 0}
+                  onClick={() => goTo(effectiveIndex - 1)}
+                >
+                  <ChevronUp size={14} />
+                </button>
+                <button
+                  title="下一条回答（↓）"
+                  disabled={!browsing}
+                  onClick={() => goTo(effectiveIndex + 1)}
+                >
+                  <ChevronDown size={14} />
+                </button>
+                <button
+                  className={`answer-nav-latest ${browsing ? 'active' : ''}`}
+                  title={session.generating ? '回到最新（后台正在生成新的回答）' : '回到最新'}
+                  disabled={!browsing}
+                  onClick={() => setViewIndex(null)}
+                >
+                  <ChevronsDown size={14} />
+                </button>
+              </div>
             </div>
           )}
-          {session.answerDetail && (
-            <div className="answer-detail">
-              <span className="box-label">详细展开</span>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{session.answerDetail}</ReactMarkdown>
-            </div>
-          )}
-          {!session.answerSummary && !session.answerDetail && (
-            <>
-              <span className="box-label">建议回答</span>
-              <p className="muted">
-                {session.generating ? '正在生成回答…' : '识别到完整问题后，会在这里流式生成回答。'}
-              </p>
-            </>
-          )}
+
+          <div className="answer-scroll">
+            {summaryText && (
+              <div className="answer-summary">
+                <span className="box-label">先说这几点</span>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{summaryText}</ReactMarkdown>
+              </div>
+            )}
+            {detailText && (
+              <div className="answer-detail">
+                <span className="box-label">详细展开</span>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{detailText}</ReactMarkdown>
+              </div>
+            )}
+            {!summaryText && !detailText && (
+              <>
+                <span className="box-label">建议回答</span>
+                <p className="muted">
+                  {browsing
+                    ? '这条回答没有留下内容。'
+                    : session.generating
+                      ? '正在生成回答…'
+                      : '识别到完整问题后，会在这里流式生成回答。'}
+                </p>
+              </>
+            )}
+          </div>
         </section>
 
         {/* 检测进行中时不显示任何旧错误：点了重新检测就进入 loading，

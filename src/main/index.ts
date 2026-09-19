@@ -33,6 +33,7 @@ void app.whenReady().then(() => {
   setCaptureProtection(settings.get().hideFromScreenCapture)
   session = new InterviewSession(database, settings)
   session.on('state', (state) => broadcast('session:state', state))
+  session.on('answer-log', (entries) => broadcast('session:answer-log', entries))
   registerIpc(database, settings, session)
   createMainWindow()
 

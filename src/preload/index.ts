@@ -71,6 +71,12 @@ const api: VocueApi = {
       ipcRenderer.on('session:state', listener)
       return () => ipcRenderer.removeListener('session:state', listener)
     },
+    onAnswerLog: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, entries: Parameters<typeof callback>[0]): void =>
+        callback(entries)
+      ipcRenderer.on('session:answer-log', listener)
+      return () => ipcRenderer.removeListener('session:answer-log', listener)
+    },
   },
   interviews: {
     list: () => ipcRenderer.invoke('interviews:list'),

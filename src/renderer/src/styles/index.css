@@ -397,8 +397,21 @@ button.status-pill:hover .status-refresh-icon { opacity: .9; }
 .status-recording { color: var(--accent-dark); background: var(--accent); }
 .status-error { color: var(--error-text); background: rgba(220,80,76,.16); }
 .transcript-box, .answer-box { padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--transcript-bg); }
-.transcript-box { min-height: 77px; }
-.answer-box { flex: 1; min-height: 0; overflow-y: auto; }
+.transcript-box { min-height: 77px; display: flex; flex-direction: column; }
+/* 面试官的话可能很长（一口气讲两三百字很常见）。封顶之后它就不会再往下长、
+   把答案框挤扁；超出的部分滚动看。答案才是这个窗口的价值。 */
+.transcript-scroll { flex: 1; min-height: 0; max-height: 104px; overflow-y: auto; }
+.answer-box { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+/* 导航固定在答案框顶部，只有正文滚动——否则往回翻时按钮会跟着滚走 */
+.answer-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
+.answer-nav-position { color: var(--text-faint); font-size: 9px; font-weight: 800; letter-spacing: .12em; }
+.answer-nav-position.browsing { color: var(--accent-text); }
+.answer-nav-buttons { display: flex; gap: 3px; }
+.answer-nav-buttons button { width: 22px; height: 20px; display: flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--line); border-radius: 6px; color: var(--text-muted); background: var(--surface-raised); }
+.answer-nav-buttons button:hover:not(:disabled) { color: var(--text-secondary); background: var(--surface-hover); }
+.answer-nav-buttons button:disabled { opacity: .3; }
+.answer-nav-latest.active { color: var(--accent-text); border-color: rgba(216,255,100,.35); background: var(--accent-soft); }
+.answer-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 .box-label { display: block; margin-bottom: 8px; color: var(--text-faint); font-size: 9px; font-weight: 800; letter-spacing: .12em; }
 .transcript-box p, .answer-box p { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
 /* 面试官这一段没识别到：用警示色说清楚，别让人以为面试官没说话 */
@@ -468,6 +481,7 @@ button.status-pill:hover .status-refresh-icon { opacity: .9; }
 @media (max-height: 430px) {
   .floating-body { gap: 7px; padding: 10px 12px 12px; }
   .transcript-box { min-height: 58px; padding: 10px; }
+  .transcript-scroll { max-height: 62px; }
   .answer-box { padding: 10px; }
   .push-to-talk { min-height: 38px; }
 }

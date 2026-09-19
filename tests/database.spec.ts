@@ -27,10 +27,10 @@ describe('LocalDatabase 文档库与档案引用', () => {
     const database = createDatabase()
     const resume = database.addLibraryDocument({
       filename: '简历.md', kind: 'markdown', content: '一份简历',
-    })
+    }, 'resume')
     const notes = database.addLibraryDocument({
       filename: 'notes.md', kind: 'markdown', content: '补充资料',
-    })
+    }, 'document')
 
     const first = database.savePreparation({
       name: '岗位 A',
@@ -57,7 +57,7 @@ describe('LocalDatabase 文档库与档案引用', () => {
     const database = createDatabase()
     const notes = database.addLibraryDocument({
       filename: 'notes.md', kind: 'markdown', content: '补充资料',
-    })
+    }, 'document')
     const created = database.savePreparation({
       name: '旧名称',
       jobDescription: '旧 JD',
@@ -86,10 +86,10 @@ describe('LocalDatabase 文档库与档案引用', () => {
     const database = createDatabase()
     const resume = database.addLibraryDocument({
       filename: '简历.md', kind: 'markdown', content: '一份简历',
-    })
+    }, 'resume')
     const notes = database.addLibraryDocument({
       filename: 'notes.md', kind: 'markdown', content: '补充资料',
-    })
+    }, 'document')
     const created = database.savePreparation({
       name: '岗位',
       jobDescription: '',
@@ -109,14 +109,14 @@ describe('LocalDatabase 文档库与档案引用', () => {
     const database = createDatabase()
     const resume = database.addLibraryDocument({
       filename: '简历.md', kind: 'markdown', content: '简历',
-    })
+    }, 'resume')
     database.savePreparation({
       name: '档案',
       jobDescription: '',
       resumeDocumentId: resume.id,
       documentIds: [
-        database.addLibraryDocument({ filename: 'a.md', kind: 'markdown', content: 'A' }).id,
-        database.addLibraryDocument({ filename: 'b.md', kind: 'markdown', content: 'B' }).id,
+        database.addLibraryDocument({ filename: 'a.md', kind: 'markdown', content: 'A' }, 'document').id,
+        database.addLibraryDocument({ filename: 'b.md', kind: 'markdown', content: 'B' }, 'document').id,
       ],
     })
 
@@ -131,10 +131,27 @@ describe('LocalDatabase 文档库与档案引用', () => {
     const database = createDatabase()
     const saved = database.addLibraryDocument({
       filename: 'long.txt', kind: 'text', content: 'x'.repeat(200_000),
-    })
+    }, 'document')
 
     expect(saved.content).toHaveLength(200_000)
     expect(database.listLibraryDocuments()[0].totalChars).toBe(200_000)
+  })
+
+  it('简历与文档分开归类，同内容的简历不会被并进补充资料', () => {
+    const database = createDatabase()
+    const content = '同一段正文'
+    const resume = database.addLibraryDocument({ filename: '简历', kind: 'text', content }, 'resume')
+    const material = database.addLibraryDocument(
+      { filename: '笔记.md', kind: 'markdown', content },
+      'document',
+    )
+
+    expect(resume.category).toBe('resume')
+    expect(material.category).toBe('document')
+    expect(database.getLibraryDocument(resume.id)?.category).toBe('resume')
+    expect(
+      database.listLibraryDocuments().map((item) => item.category).sort(),
+    ).toEqual(['document', 'resume'])
   })
 })
 
@@ -187,6 +204,100 @@ describe('旧数据库迁移到文档库', () => {
     expect(first.resume?.content).toBe('同一份简历')
     expect(first.resume?.id).toBe(second.resume?.id)
     expect(first.documents[0].libraryDocumentId).toBe(second.documents[0].libraryDocumentId)
+
+    // 简历和笔记在库里各一条，分类也跟着分开了
+    expect(first.resume?.category).toBe('resume')
+    expect(
+      database.listLibraryDocuments().map((item) => item.category).sort(),
+    ).toEqual(['document', 'resume'])
+  })
+})
+
+describe('文档库补上分类', () => {
+  it('给旧库里的简历按引用关系回填分类', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'vocue-category-test-'))
+    const path = join(directory, 'vocue.sqlite3')
+
+    // 上一版的库：文档表还没有 category 列
+    const older = new DatabaseSync(path)
+    older.exec(`
+      CREATE TABLE library_documents (
+        id TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE preparations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        job_description TEXT NOT NULL DEFAULT '',
+        resume_document_id TEXT REFERENCES library_documents(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE preparation_documents (
+        id TEXT PRIMARY KEY,
+        preparation_id TEXT NOT NULL REFERENCES preparations(id) ON DELETE CASCADE,
+        library_document_id TEXT NOT NULL REFERENCES library_documents(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO library_documents VALUES
+        ('r1', '简历', 'text', '简历正文', '2026-01-01', '2026-01-01');
+      INSERT INTO library_documents VALUES
+        ('d1', 'notes.md', 'markdown', '笔记正文', '2026-01-01', '2026-01-01');
+      INSERT INTO preparations VALUES
+        ('p1', '岗位', 'JD', 'r1', '2026-01-01', '2026-01-01');
+      INSERT INTO preparation_documents VALUES
+        ('l1', 'p1', 'd1', 0, '2026-01-01');
+    `)
+    older.close()
+
+    const database = new LocalDatabase(path)
+    databases.push({ database, directory })
+
+    const categories = new Map(
+      database.listLibraryDocuments().map((item) => [item.id, item.category]),
+    )
+    expect(categories.get('r1')).toBe('resume')
+    expect(categories.get('d1')).toBe('document')
+    // 回填只动分类，原有引用照旧
+    expect(database.getPreparation('p1')?.resume?.id).toBe('r1')
+    expect(database.getPreparation('p1')?.documents[0].libraryDocumentId).toBe('d1')
+  })
+
+  it('引用已断的旧简历靠迁移时的文件名兜底', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'vocue-category-orphan-test-'))
+    const path = join(directory, 'vocue.sqlite3')
+
+    const older = new DatabaseSync(path)
+    older.exec(`
+      CREATE TABLE library_documents (
+        id TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO library_documents VALUES
+        ('r1', '简历', 'text', '没人引用的简历', '2026-01-01', '2026-01-01');
+      INSERT INTO library_documents VALUES
+        ('d1', '简历.pdf', 'pdf', '名字像简历但类型不符', '2026-01-01', '2026-01-01');
+    `)
+    older.close()
+
+    const database = new LocalDatabase(path)
+    databases.push({ database, directory })
+
+    const categories = new Map(
+      database.listLibraryDocuments().map((item) => [item.id, item.category]),
+    )
+    expect(categories.get('r1')).toBe('resume')
+    // 兜底只认迁移时那个确切的「简历 / text」组合
+    expect(categories.get('d1')).toBe('document')
   })
 })
 

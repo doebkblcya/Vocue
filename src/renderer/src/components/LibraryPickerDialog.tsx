@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { FileText } from 'lucide-react'
-import type { LibraryDocumentSummary } from '../../../shared/types'
+import type { LibraryCategory, LibraryDocumentSummary } from '../../../shared/types'
 import { describeUsage } from '../document-usage'
 
 interface Props {
   title: string
+  /** 只挑这一类：选简历时不把补充资料混进来 */
+  category: LibraryCategory
   documents: LibraryDocumentSummary[]
   selectedIds: string[]
   /** 简历只允许选一份，补充资料可以多选 */
@@ -15,6 +17,7 @@ interface Props {
 
 export function LibraryPickerDialog({
   title,
+  category,
   documents,
   selectedIds,
   multiple,
@@ -22,6 +25,11 @@ export function LibraryPickerDialog({
   onConfirm,
 }: Props): React.JSX.Element {
   const [selected, setSelected] = useState<string[]>(selectedIds)
+
+  // 已经挂上的照旧显示，哪怕分类对不上：确认时悄悄丢掉它比多显示一行更糟
+  const items = documents.filter(
+    (document) => document.category === category || selectedIds.includes(document.id),
+  )
 
   const toggle = (id: string): void => {
     setSelected((current) => {
@@ -43,9 +51,9 @@ export function LibraryPickerDialog({
         </header>
 
         <div className="dialog-content">
-          {documents.length ? (
+          {items.length ? (
             <div className="picker-list">
-              {documents.map((document) => {
+              {items.map((document) => {
                 const usage = describeUsage(document.totalChars)
                 return (
                   <button
@@ -67,7 +75,9 @@ export function LibraryPickerDialog({
           ) : (
             <p className="picker-empty">
               <FileText size={22} />
-              文档库还是空的。先到「文档库」上传，或直接在档案里上传新文件。
+              {category === 'resume'
+                ? '文档库里还没有简历。先到「文档库 · 简历」上传一份。'
+                : '文档库里还没有文档。先到「文档库 · 文档」上传，或直接在档案里上传新文件。'}
             </p>
           )}
         </div>

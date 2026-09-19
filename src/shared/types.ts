@@ -30,11 +30,15 @@ export interface VisibilityTestResult {
   protected: CapturePreview[]
 }
 
+/** 文档库分两类：简历是给档案当「我的简历」用的，文档是补充资料 */
+export type LibraryCategory = 'resume' | 'document'
+
 /** 文档库里的文档：全应用只存一份，档案按 id 引用它 */
 export interface LibraryDocument {
   id: string
   filename: string
   kind: DocumentKind
+  category: LibraryCategory
   content: string
   createdAt: string
   updatedAt: string
@@ -45,6 +49,7 @@ export interface LibraryDocumentSummary {
   id: string
   filename: string
   kind: DocumentKind
+  category: LibraryCategory
   updatedAt: string
   /** 全文长度 */
   totalChars: number
@@ -203,7 +208,7 @@ export interface VocueApi {
   library: {
     list: () => Promise<LibraryDocumentSummary[]>
     get: (id: string) => Promise<LibraryDocument | null>
-    add: (document: ExtractedDocument) => Promise<LibraryDocument>
+    add: (document: ExtractedDocument, category: LibraryCategory) => Promise<LibraryDocument>
     rename: (id: string, filename: string) => Promise<LibraryDocument>
     remove: (id: string) => Promise<void>
   }

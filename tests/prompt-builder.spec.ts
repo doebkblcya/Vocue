@@ -11,6 +11,7 @@ const resume: LibraryDocument = {
   id: 'r1',
   filename: '简历.md',
   kind: 'markdown',
+  category: 'resume',
   content: '做过 Electron',
   createdAt: '',
   updatedAt: '',

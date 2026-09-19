@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import type {
   DocumentKind,
   ExtractedDocument,
+  LibraryCategory,
   LibraryDocument,
   LibraryDocumentSummary,
   Preparation,
@@ -29,6 +30,7 @@ interface LibraryRow {
   id: string
   filename: string
   kind: DocumentKind
+  category: LibraryCategory
   content: string
   created_at: string
   updated_at: string
@@ -63,6 +65,7 @@ export class LocalDatabase {
         id TEXT PRIMARY KEY,
         filename TEXT NOT NULL,
         kind TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'document',
         content TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -126,6 +129,7 @@ export class LocalDatabase {
         ON interview_utterance_edits(session_id);
     `)
     this.migrateToDocumentLibrary()
+    this.migrateLibraryCategories()
     const recoveredAt = new Date().toISOString()
     this.db.prepare(`
       UPDATE interview_sessions
@@ -191,13 +195,26 @@ export class LocalDatabase {
 
     const now = new Date().toISOString()
     const libraryIdByContent = new Map<string, string>()
-    const pendingLibrary: Array<{ id: string; filename: string; kind: DocumentKind; content: string }> = []
-    const ensureLibraryDocument = (filename: string, kind: DocumentKind, content: string): string => {
-      const existing = libraryIdByContent.get(content)
+    const pendingLibrary: Array<{
+      id: string
+      filename: string
+      kind: DocumentKind
+      category: LibraryCategory
+      content: string
+    }> = []
+    const ensureLibraryDocument = (
+      filename: string,
+      kind: DocumentKind,
+      content: string,
+      category: LibraryCategory,
+    ): string => {
+      // 同一份正文在不同分类下是两份文档，别把简历并进补充资料里
+      const key = `${category}\u0000${content}`
+      const existing = libraryIdByContent.get(key)
       if (existing) return existing
       const id = randomUUID()
-      libraryIdByContent.set(content, id)
-      pendingLibrary.push({ id, filename, kind, content })
+      libraryIdByContent.set(key, id)
+      pendingLibrary.push({ id, filename, kind, category, content })
       return id
     }
 
@@ -205,11 +222,11 @@ export class LocalDatabase {
     for (const row of legacyPreparations) {
       const content = row.resume.trim()
       if (!content) continue
-      resumeIdByPreparation.set(row.id, ensureLibraryDocument('简历', 'text', content))
+      resumeIdByPreparation.set(row.id, ensureLibraryDocument('简历', 'text', content, 'resume'))
     }
     const links = legacyDocuments.map((row) => ({
       preparationId: row.preparation_id,
-      libraryDocumentId: ensureLibraryDocument(row.filename, row.kind, row.content),
+      libraryDocumentId: ensureLibraryDocument(row.filename, row.kind, row.content, 'document'),
       position: row.position,
       createdAt: row.created_at,
     }))
@@ -219,11 +236,19 @@ export class LocalDatabase {
     this.db.exec('BEGIN IMMEDIATE')
     try {
       const insertLibrary = this.db.prepare(`
-        INSERT INTO library_documents(id, filename, kind, content, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO library_documents(id, filename, kind, category, content, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `)
       for (const document of pendingLibrary) {
-        insertLibrary.run(document.id, document.filename, document.kind, document.content, now, now)
+        insertLibrary.run(
+          document.id,
+          document.filename,
+          document.kind,
+          document.category,
+          document.content,
+          now,
+          now,
+        )
       }
 
       if (needsPreparationRebuild) {
@@ -283,6 +308,25 @@ export class LocalDatabase {
     } finally {
       this.db.exec('PRAGMA foreign_keys = ON;')
     }
+  }
+
+  /**
+   * 文档库分「简历 / 文档」两类。
+   *
+   * 旧版本的库是一个大列表，简历只能靠「被档案当简历引用」来认。
+   * 建列时按这个引用关系回填；引用已经断掉的（用户在档案里取消过选择）
+   * 用迁移时统一起的文件名兜底。
+   */
+  private migrateLibraryCategories(): void {
+    if (this.columnNames('library_documents').includes('category')) return
+    this.db.exec(
+      `ALTER TABLE library_documents ADD COLUMN category TEXT NOT NULL DEFAULT 'document'`,
+    )
+    this.db.exec(`
+      UPDATE library_documents SET category = 'resume'
+      WHERE id IN (SELECT resume_document_id FROM preparations WHERE resume_document_id IS NOT NULL)
+         OR (filename = '简历' AND kind = 'text')
+    `)
   }
 
   getSetting(key: string): string | null {
@@ -424,7 +468,7 @@ export class LocalDatabase {
   listLibraryDocuments(): LibraryDocumentSummary[] {
     const rows = this.db
       .prepare(`
-        SELECT id, filename, kind, updated_at, LENGTH(content) AS total_chars
+        SELECT id, filename, kind, category, updated_at, LENGTH(content) AS total_chars
         FROM library_documents
         ORDER BY updated_at DESC
       `)
@@ -432,6 +476,7 @@ export class LocalDatabase {
       id: string
       filename: string
       kind: DocumentKind
+      category: LibraryCategory
       updated_at: string
       total_chars: number
     }>
@@ -440,6 +485,7 @@ export class LocalDatabase {
       id: row.id,
       filename: row.filename,
       kind: row.kind,
+      category: row.category,
       updatedAt: row.updated_at,
       totalChars: Number(row.total_chars),
     }))
@@ -454,6 +500,7 @@ export class LocalDatabase {
       id: row.id,
       filename: row.filename,
       kind: row.kind,
+      category: row.category,
       content: row.content,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -461,15 +508,15 @@ export class LocalDatabase {
   }
 
   /** 库里存全文，不做任何截断：超上限只是不进入提示词，由界面告知用户 */
-  addLibraryDocument(input: ExtractedDocument): LibraryDocument {
+  addLibraryDocument(input: ExtractedDocument, category: LibraryCategory): LibraryDocument {
     const id = randomUUID()
     const now = new Date().toISOString()
     this.db
       .prepare(`
-        INSERT INTO library_documents(id, filename, kind, content, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO library_documents(id, filename, kind, category, content, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `)
-      .run(id, input.filename, input.kind, input.content, now, now)
+      .run(id, input.filename, input.kind, category, input.content, now, now)
     return this.getLibraryDocument(id) as LibraryDocument
   }
 

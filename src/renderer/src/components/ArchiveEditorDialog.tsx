@@ -84,7 +84,7 @@ export function ArchiveEditorDialog({
       const addedIds: string[] = []
       const messages: string[] = []
       for (const document of extracted) {
-        const saved = await window.vocue.library.add(document)
+        const saved = await window.vocue.library.add(document, 'document')
         addedIds.push(saved.id)
         messages.push(`「${saved.filename}」${describeUsage(saved.content.length).text}`)
       }
@@ -232,7 +232,7 @@ export function ArchiveEditorDialog({
                     ) : (
                       <>
                         <strong>未选择简历</strong>
-                        <small>先到「文档库」上传一份，之后可以跨岗位复用。</small>
+                        <small>先到「文档库 · 简历」上传一份，之后可以跨岗位复用。</small>
                       </>
                     )}
                   </span>
@@ -320,6 +320,7 @@ export function ArchiveEditorDialog({
       {picker && (
         <LibraryPickerDialog
           title={picker === 'resume' ? '选择简历' : '选择补充资料'}
+          category={picker === 'resume' ? 'resume' : 'document'}
           documents={library}
           selectedIds={picker === 'resume'
             ? (draft.resumeDocumentId ? [draft.resumeDocumentId] : [])

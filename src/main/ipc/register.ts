@@ -1,5 +1,5 @@
 import { ipcMain, nativeTheme, type WebContents } from 'electron'
-import type { AppSettings, AudioMode, ExtractedDocument } from '../../shared/types'
+import type { AppSettings, AudioMode, ExtractedDocument, LibraryCategory } from '../../shared/types'
 import { toUserMessage } from '../../shared/error-message'
 import { DeepSeekClient } from '../ai/deepseek-client'
 import { buildInterviewReviewPrompt } from '../ai/interview-review'
@@ -95,9 +95,10 @@ export function registerIpc(
 
   handle('library:list', () => database.listLibraryDocuments())
   handle('library:get', (_sender, id: string) => database.getLibraryDocument(id))
-  handle('library:add', (_sender, document: ExtractedDocument) => {
+  handle('library:add', (_sender, document: ExtractedDocument, category: LibraryCategory) => {
     if (!document.content.trim()) throw new Error('文档内容为空')
-    return database.addLibraryDocument(document)
+    if (category !== 'resume' && category !== 'document') throw new Error('未知的文档分类')
+    return database.addLibraryDocument(document, category)
   })
   handle('library:rename', (_sender, id: string, filename: string) =>
     database.renameLibraryDocument(id, filename),

@@ -1,5 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppSettings, AudioMode, ExtractedDocument, VocueApi } from '../shared/types'
+import type {
+  AppSettings,
+  AudioMode,
+  ExtractedDocument,
+  LibraryCategory,
+  VocueApi,
+} from '../shared/types'
 
 const api: VocueApi = {
   settings: {
@@ -30,7 +36,8 @@ const api: VocueApi = {
   library: {
     list: () => ipcRenderer.invoke('library:list'),
     get: (id: string) => ipcRenderer.invoke('library:get', id),
-    add: (document: ExtractedDocument) => ipcRenderer.invoke('library:add', document),
+    add: (document: ExtractedDocument, category: LibraryCategory) =>
+      ipcRenderer.invoke('library:add', document, category),
     rename: (id: string, filename: string) => ipcRenderer.invoke('library:rename', id, filename),
     remove: (id: string) => ipcRenderer.invoke('library:remove', id),
   },

@@ -45,6 +45,8 @@ export function createMainWindow(): BrowserWindow {
       nodeIntegration: false,
       webSecurity: true,
       sandbox: true,
+      // 主窗口在后台时仍在刷新会话状态和记录页，不能被降级
+      backgroundThrottling: false,
     },
   })
   mainWindow.setContentProtection(captureProtectionEnabled)
@@ -83,6 +85,9 @@ export function openFloatingWindow(): BrowserWindow {
       nodeIntegration: false,
       webSecurity: true,
       sandbox: true,
+      // 悬浮窗里跑着整场麦克风采集：「最小化」是 hide()，窗口一旦被隐藏，
+      // 默认的省电降级会把采集一起冻住
+      backgroundThrottling: false,
     },
   })
   floatingWindow.setAlwaysOnTop(true, 'floating')

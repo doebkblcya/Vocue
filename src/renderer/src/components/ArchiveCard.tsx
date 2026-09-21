@@ -1,4 +1,4 @@
-import { FileText, Play } from 'lucide-react'
+import { ChevronRight, FileText, Pencil, Play } from 'lucide-react'
 import { formatStage, nextStage } from '../../../shared/stage'
 import type { PreparationSummary } from '../../../shared/types'
 
@@ -10,10 +10,6 @@ interface Props {
   onAdvanceStage: () => void
 }
 
-/**
- * 卡片主体进编辑，动作按钮独立。
- * 不用嵌套 button，避免出现「点卡片还是点按钮」的歧义。
- */
 export function ArchiveCard({
   preparation,
   onEdit,
@@ -22,26 +18,32 @@ export function ArchiveCard({
 }: Props): React.JSX.Element {
   return (
     <article className="archive-card">
-      <button className="archive-card-main" onClick={onEdit}>
+      <div className="archive-card-main">
         <span className="archive-card-icon"><FileText size={19} /></span>
         <span className="archive-card-copy">
           <strong>{preparation.name}</strong>
           <small>
-            {preparation.hasResume ? '已选简历' : '未选简历'} · {preparation.documentCount} 份补充资料
+            {preparation.hasResume ? '已选简历' : '未选简历'} · {preparation.documentCount} 份补充资料 · 更新于 {formatDate(preparation.updatedAt)}
           </small>
         </span>
-        <time>{formatDate(preparation.updatedAt)}</time>
-      </button>
-      <button
-        className={`archive-card-stage ${preparation.stage === null ? 'unset' : ''}`}
-        title={`点击进入${formatStage(nextStage(preparation.stage))}`}
-        onClick={onAdvanceStage}
-      >
-        {formatStage(preparation.stage)}
-      </button>
-      <button className="archive-card-start" title="用这份档案开始面试" onClick={onStart}>
-        <Play size={14} fill="currentColor" />
-      </button>
+      </div>
+      <div className="archive-card-actions">
+        <button
+          className={`archive-card-stage ${preparation.stage === null ? 'unset' : ''}`}
+          title={`推进到${formatStage(nextStage(preparation.stage))}`}
+          onClick={onAdvanceStage}
+        >
+          <span>阶段</span>
+          <strong>{formatStage(preparation.stage)}</strong>
+          <ChevronRight size={14} />
+        </button>
+        <button className="button ghost small" onClick={onEdit}>
+          <Pencil size={14} />编辑
+        </button>
+        <button className="button primary small archive-card-start" onClick={onStart}>
+          <Play size={13} fill="currentColor" />开始面试
+        </button>
+      </div>
     </article>
   )
 }

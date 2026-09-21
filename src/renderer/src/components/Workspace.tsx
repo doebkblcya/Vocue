@@ -1,4 +1,4 @@
-import { FileText, FolderPlus, Home, Library, Play, Settings, Square } from 'lucide-react'
+import { ArrowRight, Clock3, FileText, FolderPlus, Home, Library, Play, Settings } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { formatStage, nextStage } from '../../../shared/stage'
 import type { AudioMode, InterviewRecordSummary, PreparationSummary } from '../../../shared/types'
@@ -81,12 +81,6 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
     await refresh()
   }
 
-  const stop = async (): Promise<void> => {
-    await window.vocue.session.stop()
-    await window.vocue.window.closeFloating()
-    await refresh()
-  }
-
   /**
    * 档案卡上点阶段即可推进一轮，不用进编辑弹窗。
    * 不做乐观更新：写完回读一次，失败时界面停在真实阶段上。
@@ -106,7 +100,7 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
   }
 
   const isActive = session.status !== 'idle'
-  const recentPreparations = preparations.slice(0, 3)
+  const recentRecord = records[0]
 
   return (
     <main className="home-shell workspace-shell">
@@ -201,72 +195,59 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
           />
         ) : view === 'home' ? (
           <div className="page">
-            <PageHeader eyebrow="WORKSPACE" title="工作台" />
-            <div className="page-body">
-              <section className="session-card">
-                {isActive ? (
-                  <>
-                    <div className="session-card-copy">
-                      <span className="session-card-status"><span className="session-dot" />面试进行中</span>
-                      <strong>{session.preparationName}</strong>
-                      <small>回答窗口始终置顶；需要提词时唤出即可。</small>
-                    </div>
-                    <div className="session-card-actions">
-                      <button
-                        className="button primary"
-                        onClick={() => void window.vocue.window.openFloating()}
-                      >
-                        <Play size={16} fill="currentColor" />打开回答窗口
-                      </button>
-                      <button className="button secondary" onClick={() => void stop()}>
-                        <Square size={14} />结束面试
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="session-card-copy">
-                      <strong>开始一场面试</strong>
-                      <small>选择面试档案与录音方式，回答窗口会随后置顶出现。</small>
-                    </div>
-                    <div className="session-card-actions">
-                      <button className="button primary" onClick={() => openStart()}>
-                        <Play size={16} fill="currentColor" />开始面试
-                      </button>
-                    </div>
-                  </>
-                )}
+            <PageHeader eyebrow="VOCUE" title="工作台" />
+            <div className="page-body workspace-dashboard">
+              <section className="workspace-hero">
+                <div className="workspace-hero-copy">
+                  <span className="workspace-hero-kicker">LIVE ASSIST</span>
+                  <h2>准备好后，从这里开始</h2>
+                  <p>选择通用方式或一份面试档案，Vocue 会在独立悬浮窗中提供实时回答。</p>
+                </div>
+                <button className="button primary workspace-start" onClick={() => openStart()}>
+                  <Play size={15} fill="currentColor" />开始面试
+                </button>
               </section>
 
-              <section className="archive-section">
-                <header>
-                  <h2><FileText size={17} />最近档案</h2>
-                  <button className="button ghost small" onClick={() => openView('archives')}>
-                    查看全部
-                  </button>
-                </header>
-                {recentPreparations.length ? (
-                  <div className="archive-grid">
-                    {recentPreparations.map((preparation) => (
-                      <ArchiveCard
-                        key={preparation.id}
-                        preparation={preparation}
-                        onEdit={() => setEditingId(preparation.id)}
-                        onStart={() => openStart(preparation.id)}
-                        onAdvanceStage={() => setPendingAdvance(preparation)}
-                      />
-                    ))}
+              <div className="workspace-overview">
+                <section className="workspace-overview-card">
+                  <span className="workspace-overview-icon"><FileText size={18} /></span>
+                  <div className="workspace-overview-copy">
+                    <span>面试档案</span>
+                    <strong>
+                      {preparations.length ? `${preparations.length} 份档案已就绪` : '还没有面试档案'}
+                    </strong>
+                    <small>
+                      {preparations.length
+                        ? '集中管理岗位 JD、简历和补充资料。'
+                        : '创建档案后，回答会更贴合岗位和个人经历。'}
+                    </small>
                   </div>
-                ) : (
-                  <button className="archive-empty" onClick={() => setEditingId(null)}>
-                    <span className="archive-card-icon"><FolderPlus size={20} /></span>
-                    <span>
-                      <strong>创建第一份面试档案</strong>
-                      <small>添加 JD 和简历后，回答会更贴合你的经历。</small>
-                    </span>
+                  <button className="button secondary small" onClick={() => openView('archives')}>
+                    {preparations.length ? '管理档案' : '创建档案'}<ArrowRight size={14} />
                   </button>
-                )}
-              </section>
+                </section>
+
+                <section className="workspace-overview-card">
+                  <span className="workspace-overview-icon"><Clock3 size={18} /></span>
+                  <div className="workspace-overview-copy">
+                    <span>最近一次面试</span>
+                    <strong>{recentRecord?.preparationName ?? '还没有面试记录'}</strong>
+                    <small>
+                      {recentRecord
+                        ? `${formatRecordDate(recentRecord.startedAt)} · ${recentRecord.utteranceCount} 段转写`
+                        : '使用系统音频完成面试后，记录会出现在这里。'}
+                    </small>
+                  </div>
+                  {recentRecord && (
+                    <button
+                      className="button secondary small"
+                      onClick={() => setSelectedRecordId(recentRecord.id)}
+                    >
+                      查看记录<ArrowRight size={14} />
+                    </button>
+                  )}
+                </section>
+              </div>
             </div>
           </div>
         ) : view === 'archives' ? (
@@ -282,7 +263,7 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
             />
             <div className="page-body">
               {preparations.length ? (
-                <div className="archive-grid">
+                <div className="archive-list">
                   {preparations.map((preparation) => (
                     <ArchiveCard
                       key={preparation.id}

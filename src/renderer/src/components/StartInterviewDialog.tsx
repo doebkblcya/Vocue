@@ -1,5 +1,6 @@
-import { FileText, Headphones, Mic, Sparkles } from 'lucide-react'
-import { useState } from 'react'
+import { Check, ChevronDown, FileText, Headphones, Mic, Search, Sparkles } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { formatStage } from '../../../shared/stage'
 import type { AudioMode, PreparationSummary } from '../../../shared/types'
 import { getErrorMessage } from '../error-message'
 
@@ -17,18 +18,30 @@ export function StartInterviewDialog({
   onClose,
   onStart,
 }: Props): React.JSX.Element {
-  const [selectedId, setSelectedId] = useState<string | null>(
-    initialPreparationId ?? preparations[0]?.id ?? null,
+  const [source, setSource] = useState<'generic' | 'preparation'>(
+    initialPreparationId ? 'preparation' : 'generic',
   )
+  const [selectedId, setSelectedId] = useState<string | null>(initialPreparationId ?? null)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const [mode, setMode] = useState<AudioMode>('system')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+
+  const selectedPreparation = preparations.find((preparation) => preparation.id === selectedId)
+  const filteredPreparations = useMemo(() => {
+    const keyword = query.trim().toLocaleLowerCase('zh-CN')
+    if (!keyword) return preparations
+    return preparations.filter((preparation) =>
+      preparation.name.toLocaleLowerCase('zh-CN').includes(keyword),
+    )
+  }, [preparations, query])
 
   const start = async (): Promise<void> => {
     setBusy(true)
     setError('')
     try {
-      await onStart(selectedId, mode)
+      await onStart(source === 'preparation' ? selectedId : null, mode)
     } catch (reason) {
       setError(getErrorMessage(reason))
       setBusy(false)
@@ -47,28 +60,105 @@ export function StartInterviewDialog({
 
         <div className="dialog-content">
           <div className="field-heading">
-            <strong>面试档案</strong>
-            <span>用于生成更贴合岗位和简历的回答</span>
+            <strong>回答依据</strong>
+            <span>选择是否使用岗位、简历和补充资料</span>
           </div>
-          <div className="archive-picker">
+          <div className="source-picker">
             <button
-              className={selectedId === null ? 'selected' : ''}
-              onClick={() => setSelectedId(null)}
+              type="button"
+              className={source === 'generic' ? 'selected' : ''}
+              aria-pressed={source === 'generic'}
+              onClick={() => {
+                setSource('generic')
+                setPickerOpen(false)
+              }}
             >
-              <span className="archive-picker-icon"><Sparkles size={17} /></span>
-              <span><strong>通用面试</strong><small>不使用档案，直接开始</small></span>
+              <span className="source-picker-icon"><Sparkles size={18} /></span>
+              <span>
+                <strong>通用方式</strong>
+                <small>不使用面试档案，直接开始</small>
+              </span>
+              <span className="source-picker-check"><Check size={14} /></span>
             </button>
-            {preparations.map((preparation) => (
-              <button
-                key={preparation.id}
-                className={selectedId === preparation.id ? 'selected' : ''}
-                onClick={() => setSelectedId(preparation.id)}
-              >
-                <span className="archive-picker-icon"><FileText size={17} /></span>
-                <span><strong>{preparation.name}</strong><small>{preparation.documentCount} 份补充资料</small></span>
-              </button>
-            ))}
+            <button
+              type="button"
+              className={source === 'preparation' ? 'selected' : ''}
+              aria-pressed={source === 'preparation'}
+              disabled={!preparations.length}
+              onClick={() => {
+                setSource('preparation')
+                setPickerOpen(true)
+              }}
+            >
+              <span className="source-picker-icon"><FileText size={18} /></span>
+              <span>
+                <strong>使用面试档案</strong>
+                <small>{preparations.length ? '根据岗位和个人经历生成回答' : '还没有可用的面试档案'}</small>
+              </span>
+              <span className="source-picker-check"><Check size={14} /></span>
+            </button>
           </div>
+
+          {source === 'preparation' && (
+            <div className="preparation-combobox">
+              <button
+                type="button"
+                className={`preparation-combobox-trigger ${pickerOpen ? 'open' : ''}`}
+                aria-expanded={pickerOpen}
+                onClick={() => setPickerOpen((current) => !current)}
+              >
+                <span className="preparation-combobox-copy">
+                  <strong>{selectedPreparation?.name ?? '选择一份面试档案'}</strong>
+                  <small>
+                    {selectedPreparation
+                      ? `${formatStage(selectedPreparation.stage)} · ${selectedPreparation.hasResume ? '已选简历' : '未选简历'} · ${selectedPreparation.documentCount} 份补充资料`
+                      : '可以输入公司或岗位名称进行搜索'}
+                  </small>
+                </span>
+                <ChevronDown size={17} />
+              </button>
+
+              {pickerOpen && (
+                <div className="preparation-combobox-menu">
+                  <label className="preparation-search">
+                    <Search size={15} />
+                    <input
+                      autoFocus
+                      value={query}
+                      placeholder="搜索公司或岗位"
+                      onChange={(event) => setQuery(event.target.value)}
+                    />
+                  </label>
+                  <div className="preparation-options" role="group" aria-label="面试档案">
+                    {filteredPreparations.map((preparation) => (
+                      <button
+                        key={preparation.id}
+                        type="button"
+                        aria-pressed={selectedId === preparation.id}
+                        className={selectedId === preparation.id ? 'selected' : ''}
+                        onClick={() => {
+                          setSelectedId(preparation.id)
+                          setPickerOpen(false)
+                          setQuery('')
+                        }}
+                      >
+                        <span>
+                          <strong>{preparation.name}</strong>
+                          <small>
+                            {formatStage(preparation.stage)} · {preparation.hasResume ? '已选简历' : '未选简历'} · {preparation.documentCount} 份补充资料
+                          </small>
+                        </span>
+                        {selectedId === preparation.id && <Check size={15} />}
+                      </button>
+                    ))}
+                    {!filteredPreparations.length && (
+                      <p className="preparation-options-empty">没有找到匹配的面试档案</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="field-heading">
             <strong>录音模式</strong>
@@ -99,8 +189,12 @@ export function StartInterviewDialog({
 
         <footer className="dialog-actions">
           <button className="button ghost" disabled={busy} onClick={onClose}>取消</button>
-          <button className="button primary" disabled={busy} onClick={() => void start()}>
-            {busy ? '正在准备面试…' : '开始'}
+          <button
+            className="button primary"
+            disabled={busy || (source === 'preparation' && !selectedId)}
+            onClick={() => void start()}
+          >
+            {busy ? '正在准备面试…' : '开始面试'}
           </button>
         </footer>
       </section>

@@ -1,7 +1,8 @@
-import { BrainCircuit, Clock3, Eraser, RefreshCw, Trash2, TriangleAlert, Undo2 } from 'lucide-react'
+import { BrainCircuit, Check, Clock3, Copy, Download, Eraser, RefreshCw, Trash2, TriangleAlert, Undo2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { formatDuration, formatOffset, formatRecordStatus } from '../../../shared/interview-record'
 import { formatRecordingIssue } from '../../../shared/recording-issue'
 import { isUnrecognizedSpeech } from '../../../shared/transcript'
 import type { InterviewRecord } from '../../../shared/types'
@@ -21,6 +22,8 @@ export function InterviewRecordView({ recordId, onBack, onChanged }: Props): Rea
   const [reviewing, setReviewing] = useState(false)
   const [cleaning, setCleaning] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [error, setError] = useState('')
 
@@ -51,6 +54,13 @@ export function InterviewRecordView({ recordId, onBack, onChanged }: Props): Rea
     return () => window.clearInterval(timer)
   }, [record?.status, recordId])
 
+  // 「已复制」是个两秒的即时反馈，不该一直留在界面上
+  useEffect(() => {
+    if (!copied) return
+    const timer = window.setTimeout(() => setCopied(false), 2000)
+    return () => window.clearTimeout(timer)
+  }, [copied])
+
   const generateReview = async (): Promise<void> => {
     setReviewing(true)
     setError('')
@@ -78,6 +88,32 @@ export function InterviewRecordView({ recordId, onBack, onChanged }: Props): Rea
       setError(getErrorMessage(reason))
     } finally {
       setCleaning(false)
+    }
+  }
+
+  /**
+   * 导出和复制用的是同一份 Markdown，只是去处不同：一个落盘，一个进剪贴板。
+   * 内容完全由主进程按记录原样生成，这边不做任何加工。
+   */
+  const exportMarkdown = async (): Promise<void> => {
+    setExporting(true)
+    setError('')
+    try {
+      await window.vocue.interviews.export(recordId)
+    } catch (reason) {
+      setError(getErrorMessage(reason))
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const copyMarkdown = async (): Promise<void> => {
+    setError('')
+    try {
+      await window.vocue.interviews.copy(recordId)
+      setCopied(true)
+    } catch (reason) {
+      setError(getErrorMessage(reason))
     }
   }
 
@@ -134,8 +170,27 @@ export function InterviewRecordView({ recordId, onBack, onChanged }: Props): Rea
         action={(
           <div className="record-header-actions">
             <span className={`record-status record-status-${record.status}`}>
-              {statusLabel(record.status)}
+              {formatRecordStatus(record.status)}
             </span>
+            {!isRunning && record.utterances.length > 0 && (
+              <>
+                <button
+                  className="button secondary small"
+                  disabled={exporting}
+                  onClick={() => void exportMarkdown()}
+                  title="把这场的转写原样导出成 Markdown 文件"
+                >
+                  {exporting ? <RefreshCw size={14} className="spin" /> : <Download size={14} />}导出
+                </button>
+                <button
+                  className="button secondary small"
+                  onClick={() => void copyMarkdown()}
+                  title="把这场的转写复制到剪贴板"
+                >
+                  {copied ? <Check size={14} /> : <Copy size={14} />}{copied ? '已复制' : '复制'}
+                </button>
+              </>
+            )}
             {!isRunning && (
               <button
                 className="button ghost small danger-text"
@@ -253,25 +308,4 @@ function formatDateTime(value: string): string {
   return new Intl.DateTimeFormat('zh-CN', {
     month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit',
   }).format(new Date(value))
-}
-
-function formatDuration(milliseconds: number): string {
-  const minutes = Math.floor(milliseconds / 60_000)
-  const seconds = Math.floor(milliseconds / 1000) % 60
-  return minutes ? `${minutes} 分 ${seconds} 秒` : `${seconds} 秒`
-}
-
-function formatOffset(milliseconds: number): string {
-  const seconds = Math.max(0, Math.floor(milliseconds / 1000))
-  return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
-}
-
-function statusLabel(status: InterviewRecord['status']): string {
-  return {
-    recording: '记录中',
-    ready: '待复盘',
-    reviewing: '复盘中',
-    completed: '已复盘',
-    incomplete: '记录不完整',
-  }[status]
 }

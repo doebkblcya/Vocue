@@ -1,4 +1,5 @@
-import { ipcMain, nativeTheme, type WebContents } from 'electron'
+import { writeFile } from 'node:fs/promises'
+import { BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, type WebContents } from 'electron'
 import type {
   AppSettings,
   AudioMode,
@@ -11,6 +12,7 @@ import { DeepSeekClient } from '../ai/deepseek-client'
 import { buildInterviewReviewPrompt } from '../ai/interview-review'
 import { testDoubaoConnection } from '../asr/doubao-asr'
 import { extractDocument } from '../documents/extractor'
+import { buildExportFilename, buildInterviewMarkdown } from '../session/interview-export'
 import { InterviewSession } from '../session/interview-session'
 import { planEchoCleanup } from '../session/echo-cleanup'
 import { LocalDatabase } from '../storage/database'
@@ -167,6 +169,29 @@ export function registerIpc(
 
   handle('interviews:list', () => database.listInterviewSessions())
   handle('interviews:get', (_sender, id: string) => database.getInterviewSession(id))
+  handle('interviews:export', async (sender, id: string) => {
+    const record = database.getInterviewSession(id)
+    if (!record) throw new Error('面试记录不存在')
+    const options = {
+      title: '导出面试记录',
+      defaultPath: buildExportFilename(record),
+      filters: [{ name: 'Markdown', extensions: ['md'] }],
+    }
+    // 有主窗口就挂在它上面，让保存面板以 sheet 形式出现
+    const owner = BrowserWindow.fromWebContents(sender)
+    const result = owner
+      ? await dialog.showSaveDialog(owner, options)
+      : await dialog.showSaveDialog(options)
+    if (result.canceled || !result.filePath) return { saved: false }
+    await writeFile(result.filePath, buildInterviewMarkdown(record), 'utf8')
+    return { saved: true, path: result.filePath }
+  })
+  // 复制走主进程而不是 navigator.clipboard：不受窗口焦点和渲染进程权限影响
+  handle('interviews:copy', (_sender, id: string) => {
+    const record = database.getInterviewSession(id)
+    if (!record) throw new Error('面试记录不存在')
+    clipboard.writeText(buildInterviewMarkdown(record))
+  })
   handle('interviews:cleanup-echo', (_sender, id: string) => {
     const record = database.getInterviewSession(id)
     if (!record) throw new Error('面试记录不存在')

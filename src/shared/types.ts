@@ -202,6 +202,12 @@ export interface InterviewRecord extends InterviewRecordSummary {
   utterances: InterviewUtterance[]
 }
 
+export interface InterviewExportResult {
+  /** 用户在保存对话框里点了取消时为 false */
+  saved: boolean
+  path?: string
+}
+
 export interface ExtractedDocument {
   filename: string
   kind: DocumentKind
@@ -262,6 +268,10 @@ export interface VocueApi {
     cleanupEcho: (id: string) => Promise<InterviewRecord>
     undoEchoCleanup: (id: string) => Promise<InterviewRecord>
     generateReview: (id: string) => Promise<InterviewRecord>
+    /** 弹出保存对话框，把转写原样写成 Markdown 文件 */
+    export: (id: string) => Promise<InterviewExportResult>
+    /** 把同一份 Markdown 写进系统剪贴板 */
+    copy: (id: string) => Promise<void>
     remove: (id: string) => Promise<void>
   }
   window: {

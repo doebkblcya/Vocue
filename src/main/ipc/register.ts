@@ -11,6 +11,7 @@ import { toUserMessage } from '../../shared/error-message'
 import { DeepSeekClient } from '../ai/deepseek-client'
 import { buildInterviewReviewPrompt } from '../ai/interview-review'
 import { testDoubaoConnection } from '../asr/doubao-asr'
+import { MobileCompanionServer } from '../companion/mobile-companion-server'
 import { extractDocument } from '../documents/extractor'
 import { buildExportFilename, buildInterviewMarkdown } from '../session/interview-export'
 import { InterviewSession } from '../session/interview-session'
@@ -46,6 +47,7 @@ export function registerIpc(
   database: LocalDatabase,
   settings: SettingsStore,
   session: InterviewSession,
+  companion: MobileCompanionServer,
 ): void {
   const handle = <T extends unknown[], R>(
     channel: string,
@@ -148,10 +150,14 @@ export function registerIpc(
       setInterviewMode(true)
     } catch (error) {
       await session.stop()
+      await companion.stop()
       throw error
     }
   })
-  handle('session:stop', () => session.stop())
+  handle('session:stop', async () => {
+    await session.stop()
+    await companion.stop('ended')
+  })
   handle('session:reconnect', () => session.reconnect())
   handle('session:verify', () => session.verifyService())
   handle('session:ask-screenshot', async () => {
@@ -166,6 +172,19 @@ export function registerIpc(
   handle('session:report-recording-problem', (_sender, message: string) =>
     session.reportRecordingProblem(message),
   )
+
+  handle('companion:start', async () => {
+    companion.publishState(session.getState())
+    companion.publishAnswers(session.getAnswerLog())
+    return companion.start()
+  })
+  handle('companion:stop', () => companion.stop())
+  handle('companion:get-state', () => companion.getState())
+  handle('companion:copy-url', () => {
+    const { url } = companion.getState()
+    if (!url) throw new Error('手机伴侣尚未开启')
+    clipboard.writeText(url)
+  })
 
   handle('interviews:list', () => database.listInterviewSessions())
   handle('interviews:get', (_sender, id: string) => database.getInterviewSession(id))

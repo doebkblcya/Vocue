@@ -78,6 +78,18 @@ const api: VocueApi = {
       return () => ipcRenderer.removeListener('session:answer-log', listener)
     },
   },
+  companion: {
+    start: () => ipcRenderer.invoke('companion:start'),
+    stop: () => ipcRenderer.invoke('companion:stop'),
+    getState: () => ipcRenderer.invoke('companion:get-state'),
+    copyUrl: () => ipcRenderer.invoke('companion:copy-url'),
+    onState: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: Parameters<typeof callback>[0]): void =>
+        callback(state)
+      ipcRenderer.on('companion:state', listener)
+      return () => ipcRenderer.removeListener('companion:state', listener)
+    },
+  },
   interviews: {
     list: () => ipcRenderer.invoke('interviews:list'),
     get: (id: string) => ipcRenderer.invoke('interviews:get', id),

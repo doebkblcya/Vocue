@@ -97,6 +97,10 @@ export class InterviewSession extends EventEmitter<{
     return { ...this.state }
   }
 
+  getAnswerLog(): AnswerLogEntry[] {
+    return this.answerLog.map((entry) => ({ ...entry }))
+  }
+
   async start(preparationId: string | null, mode: AudioMode): Promise<void> {
     await this.stop()
     const preparation = preparationId ? this.database.getPreparation(preparationId) : null

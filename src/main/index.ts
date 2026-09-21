@@ -3,6 +3,7 @@ import { app, nativeTheme } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { registerIpc } from './ipc/register'
 import { log } from './log'
+import { MobileCompanionServer } from './companion/mobile-companion-server'
 import { InterviewSession } from './session/interview-session'
 import { LocalDatabase } from './storage/database'
 import { SettingsStore } from './storage/settings'
@@ -20,6 +21,7 @@ if (process.platform !== 'darwin' || process.arch !== 'arm64') {
 
 let database: LocalDatabase | null = null
 let session: InterviewSession | null = null
+let companion: MobileCompanionServer | null = null
 let quitting = false
 
 void app.whenReady().then(() => {
@@ -32,9 +34,17 @@ void app.whenReady().then(() => {
   nativeTheme.on('updated', syncWindowThemeBackground)
   setCaptureProtection(settings.get().hideFromScreenCapture)
   session = new InterviewSession(database, settings)
-  session.on('state', (state) => broadcast('session:state', state))
-  session.on('answer-log', (entries) => broadcast('session:answer-log', entries))
-  registerIpc(database, settings, session)
+  companion = new MobileCompanionServer()
+  session.on('state', (state) => {
+    broadcast('session:state', state)
+    companion?.publishState(state)
+  })
+  session.on('answer-log', (entries) => {
+    broadcast('session:answer-log', entries)
+    companion?.publishAnswers(entries)
+  })
+  companion.on('state', (state) => broadcast('companion:state', state))
+  registerIpc(database, settings, session, companion)
   createMainWindow()
 
   app.on('activate', () => {
@@ -53,10 +63,12 @@ app.on('before-quit', (event) => {
   void (async () => {
     try {
       await session?.stop()
+      await companion?.stop()
     } catch (error) {
       log.error('退出时清理会话失败', error)
     } finally {
       session = null
+      companion = null
       try {
         database?.close()
       } catch (error) {

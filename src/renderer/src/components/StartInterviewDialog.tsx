@@ -1,7 +1,7 @@
-import { Check, ChevronDown, FileText, Headphones, Mic, Search, Sparkles } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Check, ChevronDown, Copy, FileText, Headphones, Mic, Search, Smartphone, Sparkles } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { formatStage } from '../../../shared/stage'
-import type { AudioMode, PreparationSummary } from '../../../shared/types'
+import type { AudioMode, CompanionConnectionState, PreparationSummary } from '../../../shared/types'
 import { getErrorMessage } from '../error-message'
 
 interface Props {
@@ -27,6 +27,26 @@ export function StartInterviewDialog({
   const [mode, setMode] = useState<AudioMode>('system')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [companionBusy, setCompanionBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [companion, setCompanion] = useState<CompanionConnectionState>({
+    active: false,
+    url: '',
+    qrDataUrl: '',
+    connectedClients: 0,
+  })
+
+  useEffect(() => {
+    let receivedLiveState = false
+    const unsubscribe = window.vocue.companion.onState((state) => {
+      receivedLiveState = true
+      setCompanion(state)
+    })
+    void window.vocue.companion.getState().then((state) => {
+      if (!receivedLiveState) setCompanion(state)
+    })
+    return unsubscribe
+  }, [])
 
   const selectedPreparation = preparations.find((preparation) => preparation.id === selectedId)
   const filteredPreparations = useMemo(() => {
@@ -45,6 +65,41 @@ export function StartInterviewDialog({
     } catch (reason) {
       setError(getErrorMessage(reason))
       setBusy(false)
+    }
+  }
+
+  const toggleCompanion = async (): Promise<void> => {
+    setCompanionBusy(true)
+    setError('')
+    try {
+      setCompanion(companion.active
+        ? await window.vocue.companion.stop()
+        : await window.vocue.companion.start())
+    } catch (reason) {
+      setError(getErrorMessage(reason))
+    } finally {
+      setCompanionBusy(false)
+    }
+  }
+
+  const close = async (): Promise<void> => {
+    if (companion.active) {
+      try {
+        await window.vocue.companion.stop()
+      } catch {
+        // 弹窗仍应能关闭；进程退出时还有统一清理。
+      }
+    }
+    onClose()
+  }
+
+  const copyCompanionUrl = async (): Promise<void> => {
+    try {
+      await window.vocue.companion.copyUrl()
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1600)
+    } catch (reason) {
+      setError(getErrorMessage(reason))
     }
   }
 
@@ -184,14 +239,53 @@ export function StartInterviewDialog({
             </div>
           )}
 
+          <div className="companion-option">
+            <div className="companion-option-copy">
+              <span className="companion-option-icon"><Smartphone size={18} /></span>
+              <span>
+                <strong>手机伴侣</strong>
+                <small>在同一局域网的手机上只读显示实时问题与建议回答</small>
+              </span>
+            </div>
+            <button
+              type="button"
+              className={`toggle ${companion.active ? 'active' : ''}`}
+              role="switch"
+              aria-checked={companion.active}
+              aria-label="开启手机伴侣"
+              disabled={companionBusy || busy}
+              onClick={() => void toggleCompanion()}
+            >
+              <span />
+            </button>
+          </div>
+
+          {companion.active && (
+            <div className="companion-pairing">
+              <img src={companion.qrDataUrl} alt="手机伴侣连接二维码" />
+              <div className="companion-pairing-copy">
+                <strong>
+                  {companion.connectedClients
+                    ? `${companion.connectedClients} 台手机已连接`
+                    : '使用手机扫码连接'}
+                </strong>
+                <p>手机和电脑需要连接同一个 Wi-Fi。面试结束后，此地址会立即失效。</p>
+                <button type="button" onClick={() => void copyCompanionUrl()}>
+                  {copied ? <Check size={14} /> : <Copy size={14} />}
+                  {copied ? '已复制' : '复制连接地址'}
+                </button>
+              </div>
+            </div>
+          )}
+
           {error && <div className="notice notice-error" role="alert">{error}</div>}
         </div>
 
         <footer className="dialog-actions">
-          <button className="button ghost" disabled={busy} onClick={onClose}>取消</button>
+          <button className="button ghost" disabled={busy} onClick={() => void close()}>取消</button>
           <button
             className="button primary"
-            disabled={busy || (source === 'preparation' && !selectedId)}
+            disabled={busy || companionBusy || (source === 'preparation' && !selectedId)}
             onClick={() => void start()}
           >
             {busy ? '正在准备面试…' : '开始面试'}

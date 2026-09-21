@@ -143,6 +143,33 @@ export interface AnswerLogEntry {
   detail: string
 }
 
+/** 手机伴侣只接收展示所需字段，避免以后给会话状态新增内部字段时被意外暴露。 */
+export interface CompanionSessionState {
+  status: SessionStatus
+  mode: AudioMode | null
+  preparationName: string
+  partialTranscript: string
+  finalTranscript: string
+  answerSummary: string
+  answerDetail: string
+  error: string
+  generating: boolean
+}
+
+export interface CompanionAnswerEntry {
+  question: string
+  summary: string
+  detail: string
+}
+
+/** 桌面端开始弹窗里展示的局域网伴侣连接状态。 */
+export interface CompanionConnectionState {
+  active: boolean
+  url: string
+  qrDataUrl: string
+  connectedClients: number
+}
+
 export function createInitialInterviewSessionState(): InterviewSessionState {
   return {
     status: 'idle',
@@ -270,6 +297,13 @@ export interface VocueApi {
     sendMicrophoneAudio: (bytes: Uint8Array) => void
     onState: (callback: (state: InterviewSessionState) => void) => () => void
     onAnswerLog: (callback: (entries: AnswerLogEntry[]) => void) => () => void
+  }
+  companion: {
+    start: () => Promise<CompanionConnectionState>
+    stop: () => Promise<CompanionConnectionState>
+    getState: () => Promise<CompanionConnectionState>
+    copyUrl: () => Promise<void>
+    onState: (callback: (state: CompanionConnectionState) => void) => () => void
   }
   interviews: {
     list: () => Promise<InterviewRecordSummary[]>

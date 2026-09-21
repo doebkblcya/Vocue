@@ -18,7 +18,7 @@ class MicrophoneCapture {
   startContinuous(): Promise<void> {
     const operation = this.transition.then(async () => {
       if (this.continuous) return
-      if (!this.context) await this.initialize(true)
+      if (!this.context) await this.initialize()
       this.continuous = true
       this.ready = true
       this.samples = []
@@ -42,7 +42,7 @@ class MicrophoneCapture {
   private async applySending(active: boolean): Promise<void> {
     if (active) {
       if (this.sending) return
-      if (!this.context) await this.initialize(false)
+      if (!this.context) await this.initialize()
       this.sending = true
       this.ready = false
       this.samples = []
@@ -90,14 +90,21 @@ class MicrophoneCapture {
     return operation
   }
 
-  private async initialize(echoCancellation: boolean): Promise<void> {
+  /**
+   * 采集只负责把麦克风的声音原样取回来，不做任何加工。
+   *
+   * 下面三个开关必须**显式**写 false：不写不等于关闭，Chrome 的默认值是开，
+   * 省略它们反而会打开系统级处理。降噪、判停、顺滑都是 ASR 端的事
+   * （那边有 enableDdc 这类看得见、能写注释的开关），客户端再处理一遍等于
+   * 同一个信号被加工两次，而且这条处理链在 Electron 里生不生效都不可见。
+   */
+  private async initialize(): Promise<void> {
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
-        // 整场记录时尽量滤掉扬声器里的面试官声音；按住说话仍保留原始人声优先策略。
-        echoCancellation,
-        noiseSuppression: true,
-        autoGainControl: true,
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
       },
       video: false,
     })

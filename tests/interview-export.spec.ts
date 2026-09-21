@@ -29,6 +29,7 @@ function record(overrides: Partial<InterviewRecord> = {}): InterviewRecord {
     id: 's',
     preparationId: null,
     preparationName: '牛客网 ai面试交付顾问',
+    stage: null,
     status: 'completed',
     incompleteReason: null,
     // 用本地时间构造，导出的日期才不会跟着测试机器的时区变
@@ -73,6 +74,17 @@ describe('面试记录导出', () => {
 
     expect(markdown).toContain('- 状态：记录不完整')
     expect(markdown).toContain('- 记录不完整：语音识别服务断线，中途重连过')
+  })
+
+  it('轮次来自记录里的快照，紧跟在开始时间后面；不知道轮次时整行不出现', () => {
+    const markdown = buildInterviewMarkdown(record({ stage: 2 }))
+
+    expect(markdown).toContain('- 轮次：二面')
+    expect(markdown.indexOf('- 轮次：二面')).toBeGreaterThan(markdown.indexOf('- 开始时间：'))
+    expect(markdown.indexOf('- 轮次：二面')).toBeLessThan(markdown.indexOf('- 时长：'))
+    expect(buildInterviewMarkdown(record({ stage: 0 }))).toContain('- 轮次：AI 面')
+    // 通用面试和老记录没有轮次：不写「未设置」凑数
+    expect(buildInterviewMarkdown(record())).not.toContain('轮次')
   })
 
   it('超过一小时的面试，时间偏移自然进位，不从零重来', () => {

@@ -2,7 +2,7 @@ import { BrainCircuit, Check, Clock3, Copy, Download, Eraser, RefreshCw, Trash2,
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { formatDuration, formatOffset, formatRecordStatus } from '../../../shared/interview-record'
+import { formatDuration, formatOffset, formatRecordStage, formatRecordStatus } from '../../../shared/interview-record'
 import { formatRecordingIssue } from '../../../shared/recording-issue'
 import { isUnrecognizedSpeech } from '../../../shared/transcript'
 import type { InterviewRecord } from '../../../shared/types'
@@ -150,6 +150,8 @@ export function InterviewRecordView({ recordId, onBack, onChanged }: Props): Rea
   }
 
   const isRunning = record.status === 'recording'
+  /** 通用面试和老记录没有轮次；这时整项不显示，而不是写「未设置」 */
+  const stageLabel = formatRecordStage(record.stage)
   const visibleUtterances = record.utterances.filter((utterance) => !utterance.excludedAsEcho)
   const hasCandidateTranscript = record.utterances.some((utterance) => utterance.role === 'candidate')
 
@@ -162,6 +164,7 @@ export function InterviewRecordView({ recordId, onBack, onChanged }: Props): Rea
         backTitle="返回工作台"
         meta={(
           <>
+            {stageLabel && <span>{stageLabel}</span>}
             <span>{formatDateTime(record.startedAt)}</span>
             <span><Clock3 size={12} />{formatDuration(record.durationMs)}</span>
             <span>{record.utteranceCount} 段转写</span>

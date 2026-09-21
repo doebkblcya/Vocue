@@ -14,6 +14,7 @@ import type {
   InterviewRecordStatus,
   InterviewRecordSummary,
   InterviewRole,
+  InterviewStage,
 } from '../../shared/types'
 import type { EchoCleanupPlan } from '../session/echo-cleanup'
 import type { RecordingIssue } from '../../shared/recording-issue'
@@ -94,6 +95,7 @@ export class LocalDatabase {
         id TEXT PRIMARY KEY,
         preparation_id TEXT,
         preparation_name TEXT NOT NULL,
+        stage INTEGER,
         status TEXT NOT NULL,
         incomplete_reason TEXT,
         started_at TEXT NOT NULL,
@@ -136,6 +138,7 @@ export class LocalDatabase {
     this.migrateLibraryCategories()
     this.migratePreparationStage()
     this.migrateIncompleteReason()
+    this.migrateInterviewStage()
     const recoveredAt = new Date().toISOString()
     this.db.prepare(`
       UPDATE interview_sessions
@@ -350,6 +353,18 @@ export class LocalDatabase {
   private migrateIncompleteReason(): void {
     if (this.columnNames('interview_sessions').includes('incomplete_reason')) return
     this.db.exec('ALTER TABLE interview_sessions ADD COLUMN incomplete_reason TEXT')
+  }
+
+  /**
+   * 面试记录的轮次也是后加的列，老记录一律保持 NULL。
+   *
+   * 不能拿档案当前的 stage 回填：档案上的 stage 表示「下一场是第几面」，
+   * 面完一场就会推进一轮。照着它填，上周那一面会被写成今天这一轮，
+   * 而且越往后越离谱。当时是第几面，只有用户自己知道。
+   */
+  private migrateInterviewStage(): void {
+    if (this.columnNames('interview_sessions').includes('stage')) return
+    this.db.exec('ALTER TABLE interview_sessions ADD COLUMN stage INTEGER')
   }
 
   getSetting(key: string): string | null {
@@ -581,17 +596,24 @@ export class LocalDatabase {
     this.db.prepare('DELETE FROM library_documents WHERE id = ?').run(id)
   }
 
+  /**
+   * 建记录时把档案「那一刻」的轮次抄一份存进来，和 preparation_name 同理。
+   *
+   * 必须是抄，不能以后去档案里现查：档案会被推进到下一面，现查出来的值
+   * 会把历史记录追溯改写成新一轮。
+   */
   createInterviewSession(input: {
     preparationId: string | null
     preparationName: string
+    stage: InterviewStage
   }): InterviewRecord {
     const id = randomUUID()
     const now = new Date().toISOString()
     this.db.prepare(`
       INSERT INTO interview_sessions(
-        id, preparation_id, preparation_name, status, started_at, created_at, updated_at
-      ) VALUES (?, ?, ?, 'recording', ?, ?, ?)
-    `).run(id, input.preparationId, input.preparationName, now, now, now)
+        id, preparation_id, preparation_name, stage, status, started_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, 'recording', ?, ?, ?)
+    `).run(id, input.preparationId, input.preparationName, input.stage, now, now, now)
     return this.getInterviewSession(id) as InterviewRecord
   }
 
@@ -788,6 +810,8 @@ export class LocalDatabase {
       id: String(row.id),
       preparationId: row.preparation_id ? String(row.preparation_id) : null,
       preparationName: String(row.preparation_name),
+      // 老记录在这一列出现之前建的：保持 null，不去档案里现查当前轮次
+      stage: row.stage === null || row.stage === undefined ? null : Number(row.stage),
       status: row.status as InterviewRecordStatus,
       incompleteReason: (row.incomplete_reason as RecordingIssue | null) ?? null,
       startedAt: String(row.started_at),

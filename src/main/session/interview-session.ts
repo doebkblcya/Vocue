@@ -137,6 +137,8 @@ export class InterviewSession extends EventEmitter<{
         const record = this.database.createInterviewSession({
           preparationId,
           preparationName: preparation?.name ?? '通用面试',
+          // 记下「开始这一刻是第几面」：以后把档案推进到下一面，这条记录也不跟着变
+          stage: preparation?.stage ?? null,
         })
         this.activeRecordId = record.id
         this.recordStartedAt = Date.now()

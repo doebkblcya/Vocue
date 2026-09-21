@@ -1,5 +1,6 @@
 import { ArrowRight, Clock3, FileText, FolderPlus, Home, Library, Play, Settings } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
+import { formatRecordStage } from '../../../shared/interview-record'
 import { formatStage, nextStage } from '../../../shared/stage'
 import type { AudioMode, InterviewRecordSummary, PreparationSummary } from '../../../shared/types'
 import { useSessionState } from '../hooks'
@@ -161,23 +162,27 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
           {groupRecords(records).map((group) => (
             <Fragment key={group.label}>
               <p className="sidebar-group-label">{group.label}</p>
-              {group.records.map((record) => (
-                <button
-                  key={record.id}
-                  className={`sidebar-row record-row ${selectedRecordId === record.id ? 'selected' : ''}`}
-                  onClick={() => setSelectedRecordId(record.id)}
-                >
-                  <span className={`record-dot record-dot-${record.status}`} />
-                  <span className="row-copy">
-                    <strong>{record.preparationName}</strong>
-                    <small>
-                      {record.status === 'recording'
-                        ? '记录中'
-                        : `${formatRecordDate(record.startedAt)} · ${record.utteranceCount} 段`}
-                    </small>
-                  </span>
-                </button>
-              ))}
+              {group.records.map((record) => {
+                const stageLabel = formatRecordStage(record.stage)
+                return (
+                  <button
+                    key={record.id}
+                    className={`sidebar-row record-row ${selectedRecordId === record.id ? 'selected' : ''}`}
+                    onClick={() => setSelectedRecordId(record.id)}
+                  >
+                    <span className={`record-dot record-dot-${record.status}`} />
+                    <span className="row-copy">
+                      <strong>{record.preparationName}</strong>
+                      <small>
+                        {stageLabel && `${stageLabel} · `}
+                        {record.status === 'recording'
+                          ? '记录中'
+                          : `${formatRecordDate(record.startedAt)} · ${record.utteranceCount} 段`}
+                      </small>
+                    </span>
+                  </button>
+                )
+              })}
             </Fragment>
           ))}
           {!records.length && (

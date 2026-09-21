@@ -183,6 +183,15 @@ export interface InterviewRecordSummary {
   id: string
   preparationId: string | null
   preparationName: string
+  /**
+   * 面试开始那一刻档案是第几面；null 表示当时无从知道——
+   * 通用面试（没有档案），或这一列出现之前建的老记录。
+   *
+   * 建记录时抄下来，之后不再跟着档案变：你可以把档案推进到下一面，
+   * 而这条记录仍然是当时那一面。理由和 preparationName 一样，
+   * 记录是存档，不该被后来的操作改写。
+   */
+  stage: InterviewStage
   status: InterviewRecordStatus
   /** 只有 status 为 incomplete 时有意义；老记录为 null */
   incompleteReason: RecordingIssue | null

@@ -1,6 +1,11 @@
 import type { InterviewRecord } from '../../shared/types'
 import { formatRecordingIssue } from '../../shared/recording-issue'
-import { formatDuration, formatOffset, formatRecordStatus } from '../../shared/interview-record'
+import {
+  formatDuration,
+  formatOffset,
+  formatRecordStage,
+  formatRecordStatus,
+} from '../../shared/interview-record'
 import { isUnrecognizedSpeech } from '../../shared/transcript'
 
 const ROLE_TEXT = { interviewer: '面试官', candidate: '我' } as const
@@ -23,10 +28,16 @@ export function buildInterviewMarkdown(record: InterviewRecord): string {
     `# ${record.preparationName}`,
     '',
     `- 开始时间：${formatAbsolute(record.startedAt)}`,
+  ]
+  // 轮次紧跟在开始时间后面：这两条一起回答「这是哪一场」。
+  // 不知道轮次（通用面试、老记录）就整行不写，不用「未设置」凑数。
+  const stage = formatRecordStage(record.stage)
+  if (stage) lines.push(`- 轮次：${stage}`)
+  lines.push(
     `- 时长：${formatDuration(record.durationMs)}`,
     `- 转写：${record.utteranceCount} 段`,
     `- 状态：${formatRecordStatus(record.status)}`,
-  ]
+  )
 
   if (record.status === 'incomplete') {
     lines.push(`- 记录不完整：${formatRecordingIssue(record.incompleteReason)}`)

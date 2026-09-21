@@ -1,3 +1,5 @@
+import { formatStage } from './stage'
+import type { InterviewStage } from './stage'
 import type { InterviewRecordStatus } from './types'
 
 /**
@@ -17,6 +19,20 @@ const STATUS_TEXT: Record<InterviewRecordStatus, string> = {
 
 export function formatRecordStatus(status: InterviewRecordStatus): string {
   return STATUS_TEXT[status]
+}
+
+/**
+ * 记录的面试轮次标签；不知道轮次时返回 null。
+ *
+ * 「不知道」有两种来源，处理方式必须一致：通用面试没有档案，以及这一列
+ * 出现之前建的老记录。两者都不去档案里现查当前轮次——档案会被推进到
+ * 下一面，查出来的值会把历史记录追溯改写成新一轮。
+ *
+ * 返回 null 而不是「未设置」：记录列表很窄，把「不知道」摆出来只是噪音。
+ * 界面和导出共用这一个判断，所以两边不会一个显示、一个不显示。
+ */
+export function formatRecordStage(stage: InterviewStage): string | null {
+  return stage === null ? null : formatStage(stage)
 }
 
 /** 时长：不满一分钟只给秒，避免出现「0 分 42 秒」这种 */

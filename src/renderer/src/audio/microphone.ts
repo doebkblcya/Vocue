@@ -1,3 +1,5 @@
+import { StreamingLinearResampler } from './streaming-linear-resampler'
+
 class MicrophoneCapture {
   private context: AudioContext | null = null
   private stream: MediaStream | null = null
@@ -5,6 +7,7 @@ class MicrophoneCapture {
   private continuous = false
   private ready = false
   private samples: number[] = []
+  private readonly resampler = new StreamingLinearResampler(16_000)
   /** 串行化按下/松开，避免首次授权期间重复初始化或松开事件越过按下事件。 */
   private transition: Promise<void> = Promise.resolve()
 
@@ -22,6 +25,7 @@ class MicrophoneCapture {
       this.continuous = true
       this.ready = true
       this.samples = []
+      this.resampler.reset()
     })
     this.transition = operation.catch(() => undefined)
     return operation
@@ -33,6 +37,7 @@ class MicrophoneCapture {
       this.continuous = false
       this.ready = false
       this.samples = []
+      this.resampler.reset()
       await this.releaseResources()
     })
     this.transition = operation.catch(() => undefined)
@@ -46,6 +51,7 @@ class MicrophoneCapture {
       this.sending = true
       this.ready = false
       this.samples = []
+      this.resampler.reset()
       try {
         await window.vocue.session.setMicrophoneActive(true)
         this.ready = true
@@ -54,6 +60,7 @@ class MicrophoneCapture {
         this.sending = false
         this.ready = false
         this.samples = []
+        this.resampler.reset()
         throw error
       }
       return
@@ -84,6 +91,7 @@ class MicrophoneCapture {
         this.continuous = false
         this.ready = false
         this.samples = []
+        this.resampler.reset()
         await this.releaseResources()
       })
     this.transition = operation.catch(() => undefined)
@@ -124,14 +132,8 @@ class MicrophoneCapture {
   }
 
   private process(input: Float32Array, inputRate: number): void {
-    const ratio = inputRate / 16_000
-    const outputLength = Math.floor(input.length / ratio)
-    for (let index = 0; index < outputLength; index += 1) {
-      const position = index * ratio
-      const before = Math.floor(position)
-      const after = Math.min(before + 1, input.length - 1)
-      const fraction = position - before
-      const value = input[before] + (input[after] - input[before]) * fraction
+    const output = this.resampler.push(input, inputRate)
+    for (const value of output) {
       this.samples.push(Math.max(-1, Math.min(1, value)))
     }
 
@@ -149,6 +151,9 @@ class MicrophoneCapture {
   }
 
   private sendRemainingPacket(): void {
+    for (const value of this.resampler.flush()) {
+      this.samples.push(Math.max(-1, Math.min(1, value)))
+    }
     this.sendCompletePackets()
     if (!this.samples.length) return
     const packet = this.samples.splice(0)
@@ -169,6 +174,7 @@ class MicrophoneCapture {
     await this.context?.close()
     this.stream = null
     this.context = null
+    this.resampler.reset()
   }
 }
 

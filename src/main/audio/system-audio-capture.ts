@@ -27,13 +27,17 @@ export class SystemAudioCapture extends EventEmitter<SystemAudioCaptureEvents> {
     await this.spawnHelper()
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     this.desiredRunning = false
     if (this.restartTimer) clearTimeout(this.restartTimer)
     this.restartTimer = null
     const child = this.process
     this.process = null
-    if (child && !child.killed) child.kill('SIGTERM')
+    if (!child || child.exitCode !== null || child.signalCode !== null) return
+    child.kill('SIGTERM')
+    if (await waitForExit(child, 750)) return
+    child.kill('SIGKILL')
+    await waitForExit(child, 250)
   }
 
   private getExecutablePath(): string {
@@ -119,6 +123,24 @@ export class SystemAudioCapture extends EventEmitter<SystemAudioCaptureEvents> {
       })
     }, delay)
   }
+}
+
+function waitForExit(
+  child: ChildProcessByStdio<null, Readable, Readable>,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true)
+  return new Promise((resolvePromise) => {
+    const closed = (): void => {
+      clearTimeout(timer)
+      resolvePromise(true)
+    }
+    const timer = setTimeout(() => {
+      child.off('close', closed)
+      resolvePromise(false)
+    }, timeoutMs)
+    child.once('close', closed)
+  })
 }
 
 export function describeStartupFailure(

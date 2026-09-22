@@ -136,7 +136,7 @@ export function FloatingWindow(): React.JSX.Element {
 
   // 这个胶囊只描述「语音服务」状态，不含 AI 生成（生成是模型侧的事）
   const status = {
-    idle: '未开始', connecting: '正在连接', verifying: '正在检测服务', ready: '服务正常',
+    idle: '未开始', connecting: '正在连接', verifying: '正在检测识别服务', ready: '识别服务正常',
     listening: '正在聆听', recording: '录音中', finalizing: '正在识别',
     reconnecting: '正在重连', error: '出现问题',
   }[session.status]
@@ -206,7 +206,7 @@ export function FloatingWindow(): React.JSX.Element {
   const statusContent = (
     <>
       {session.mode === 'microphone' ? <Mic size={14} /> : <Headphones size={14} />}
-      <span>{verifying ? '正在检测服务' : status}</span>
+      <span>{verifying ? '正在检测识别服务' : status}</span>
       {canVerify && <RefreshCw size={12} className="status-refresh-icon" />}
       {verifying && <RefreshCw size={12} className="spin" />}
     </>

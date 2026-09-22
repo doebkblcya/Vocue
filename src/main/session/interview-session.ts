@@ -664,7 +664,7 @@ export class InterviewSession extends EventEmitter<{
     this.clearSafetyFallback()
     this.segmentActive = false
     this.pendingAudio.length = 0
-    this.systemAudio?.stop()
+    await this.systemAudio?.stop()
     this.systemAudio = null
     if (finalizeTranscript && this.state.mode === 'system') {
       this.flushCandidatePending()

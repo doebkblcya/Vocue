@@ -78,7 +78,7 @@ export const companionPageHtml = `<!doctype html>
   <script>
     (() => {
       const elements = Object.fromEntries(['preparation','status','statusText','welcome','welcomeTitle','welcomeText','content','error','questionState','question','nav','previous','position','next','summary','detailWrap','detail'].map((id) => [id, document.getElementById(id)]));
-      const labels = { idle:'等待开始', connecting:'正在连接', verifying:'正在检测', ready:'服务正常', listening:'正在聆听', recording:'录音中', finalizing:'正在识别', reconnecting:'正在重连', error:'出现问题' };
+      const labels = { idle:'等待开始', connecting:'正在连接', verifying:'正在检测识别服务', ready:'识别服务正常', listening:'正在聆听', recording:'录音中', finalizing:'正在识别', reconnecting:'正在重连', error:'出现问题' };
       let state = null;
       let answers = [];
       let viewIndex = null;

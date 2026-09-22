@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
 import { safeStorage } from 'electron'
 import type {
   AppSettings,
@@ -21,19 +22,43 @@ const SECRET_KEYS = ['deepseekApiKey', 'doubaoApiKey'] as const
 type SecretKey = (typeof SECRET_KEYS)[number]
 
 export class SettingsStore {
+  private secrets: Partial<Record<SecretKey, string>> = {}
+  private initialized = false
+  private initialization: Promise<void> | null = null
+
   constructor(
     private readonly database: LocalDatabase,
     private readonly secretsPath: string,
   ) {}
 
+  /**
+   * 钥匙串可能弹出系统授权框。使用异步 safeStorage，避免把 Electron 主线程
+   * 连同窗口和退出事件一起冻住；失败后清掉 Promise，让界面的「重试」真能重试。
+   */
+  initialize(): Promise<void> {
+    if (this.initialized) return Promise.resolve()
+    if (!this.initialization) {
+      this.initialization = this.readSecrets()
+        .then((secrets) => {
+          this.secrets = secrets
+          this.initialized = true
+        })
+        .catch((error: unknown) => {
+          this.initialization = null
+          throw error
+        })
+    }
+    return this.initialization
+  }
+
   get(): AppSettings {
-    const secrets = this.readSecrets()
+    this.assertInitialized()
     const storedTheme = this.database.getSetting('theme')
     const storedCaptureProtection = this.database.getSetting('hideFromScreenCapture')
     const storedThinkingEffort = this.database.getSetting('thinkingEffort')
     return {
       ...DEFAULTS,
-      ...secrets,
+      ...this.secrets,
       hideFromScreenCapture: storedCaptureProtection === null
         ? DEFAULTS.hideFromScreenCapture
         : storedCaptureProtection === 'true',
@@ -55,8 +80,9 @@ export class SettingsStore {
     }
   }
 
-  save(input: Partial<AppSettings>): PublicSettings {
-    const secrets = this.readSecrets()
+  async save(input: Partial<AppSettings>): Promise<PublicSettings> {
+    await this.initialize()
+    const secrets = { ...this.secrets }
     let secretsChanged = false
     for (const key of SECRET_KEYS) {
       if (input[key] !== undefined && input[key] !== '') {
@@ -73,7 +99,10 @@ export class SettingsStore {
     if (input.thinkingEffort !== undefined && isThinkingEffort(input.thinkingEffort)) {
       this.database.setSetting('thinkingEffort', input.thinkingEffort)
     }
-    if (secretsChanged) this.writeSecrets(secrets)
+    if (secretsChanged) {
+      await this.writeSecrets(secrets)
+      this.secrets = secrets
+    }
     return this.getPublic()
   }
 
@@ -82,27 +111,38 @@ export class SettingsStore {
     return Boolean(settings.deepseekApiKey && settings.doubaoApiKey)
   }
 
-  private readSecrets(): Partial<Record<SecretKey, string>> {
+  private async readSecrets(): Promise<Partial<Record<SecretKey, string>>> {
     if (!existsSync(this.secretsPath)) return {}
-    try {
-      const envelope = JSON.parse(readFileSync(this.secretsPath, 'utf8')) as { encrypted: string }
-      const decrypted = safeStorage.decryptString(Buffer.from(envelope.encrypted, 'base64'))
-      const parsed = JSON.parse(decrypted) as Record<string, unknown>
-      return {
+    const available = await safeStorage.isAsyncEncryptionAvailable()
+    if (!available) throw new Error('macOS 登录钥匙串当前不可用，请解锁后重试')
+
+    const envelope = JSON.parse(readFileSync(this.secretsPath, 'utf8')) as { encrypted?: unknown }
+    if (typeof envelope.encrypted !== 'string') throw new Error('本机密钥文件格式无效')
+    const encrypted = Buffer.from(envelope.encrypted, 'base64')
+    const decrypted = await safeStorage.decryptStringAsync(encrypted)
+    const parsed = JSON.parse(decrypted.result) as Record<string, unknown>
+    if (decrypted.shouldReEncrypt) {
+      await this.writeSecrets({
         deepseekApiKey: typeof parsed.deepseekApiKey === 'string' ? parsed.deepseekApiKey : '',
         doubaoApiKey: typeof parsed.doubaoApiKey === 'string' ? parsed.doubaoApiKey : '',
-      }
-    } catch {
-      return {}
+      })
+    }
+    return {
+      deepseekApiKey: typeof parsed.deepseekApiKey === 'string' ? parsed.deepseekApiKey : '',
+      doubaoApiKey: typeof parsed.doubaoApiKey === 'string' ? parsed.doubaoApiKey : '',
     }
   }
 
-  private writeSecrets(secrets: Partial<Record<SecretKey, string>>): void {
-    if (!safeStorage.isEncryptionAvailable()) {
+  private async writeSecrets(secrets: Partial<Record<SecretKey, string>>): Promise<void> {
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) {
       throw new Error('macOS 钥匙串当前不可用，无法安全保存 API Key')
     }
-    const encrypted = safeStorage.encryptString(JSON.stringify(secrets)).toString('base64')
-    writeFileSync(this.secretsPath, JSON.stringify({ version: 1, encrypted }), { mode: 0o600 })
+    const encrypted = (await safeStorage.encryptStringAsync(JSON.stringify(secrets))).toString('base64')
+    await writeFile(this.secretsPath, JSON.stringify({ version: 1, encrypted }), { mode: 0o600 })
+  }
+
+  private assertInitialized(): void {
+    if (!this.initialized) throw new Error('本机设置尚未加载，请稍后重试')
   }
 }
 

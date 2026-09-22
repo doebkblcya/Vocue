@@ -117,7 +117,10 @@ class MicrophoneCapture {
       video: false,
     })
     this.context = new AudioContext()
-    await this.context.audioWorklet.addModule('/pcm-worklet.js')
+    // 开发服务器和打包后的 file:// 页面根目录不同，必须相对当前 HTML 解析。
+    // 写成 /pcm-worklet.js 在 DMG 中会错误地落到 file:///pcm-worklet.js。
+    const workletUrl = new URL('./pcm-worklet.js', window.location.href).href
+    await this.context.audioWorklet.addModule(workletUrl)
     const source = this.context.createMediaStreamSource(this.stream)
     const worklet = new AudioWorkletNode(this.context, 'pcm-capture-processor')
     const silent = this.context.createGain()

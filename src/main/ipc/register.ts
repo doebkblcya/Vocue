@@ -59,10 +59,16 @@ export function registerIpc(
     })
   }
 
-  handle('settings:get', () => settings.getPublic())
-  handle('settings:is-ready', () => settings.isReady())
-  handle('settings:save', (_sender, input: Partial<AppSettings>) => {
-    const saved = settings.save(input)
+  handle('settings:get', async () => {
+    await settings.initialize()
+    return settings.getPublic()
+  })
+  handle('settings:is-ready', async () => {
+    await settings.initialize()
+    return settings.isReady()
+  })
+  handle('settings:save', async (_sender, input: Partial<AppSettings>) => {
+    const saved = await settings.save(input)
     setCaptureProtection(saved.hideFromScreenCapture)
     nativeTheme.themeSource = saved.theme
     syncWindowThemeBackground()
@@ -71,6 +77,7 @@ export function registerIpc(
   })
   handle('settings:test-deepseek', async () => {
     try {
+      await settings.initialize()
       await new DeepSeekClient(settings.get()).test()
       return { ok: true, message: 'DeepSeek 连接成功' }
     } catch (error) {
@@ -79,6 +86,7 @@ export function registerIpc(
   })
   handle('settings:test-doubao', async () => {
     try {
+      await settings.initialize()
       await testDoubaoConnection(settings.get())
       return { ok: true, message: '豆包流式语音连接成功' }
     } catch (error) {
@@ -124,7 +132,7 @@ export function registerIpc(
   handle('documents:extract', (_sender, filename: string, bytes: Uint8Array) =>
     extractDocument(filename, bytes),
   )
-  handle('documents:recognize-image', (_sender, filename: string, bytes: Uint8Array) => {
+  handle('documents:recognize-image', async (_sender, filename: string, bytes: Uint8Array) => {
     if (bytes.byteLength > 10 * 1024 * 1024) throw new Error('图片不能超过 10 MB')
     const extension = filename.split('.').pop()?.toLowerCase()
     const mimeTypes: Record<string, string> = {
@@ -135,10 +143,12 @@ export function registerIpc(
     }
     const mimeType = extension ? mimeTypes[extension] : undefined
     if (!mimeType) throw new Error('仅支持 PNG、JPEG 和 WebP 图片')
+    await settings.initialize()
     return new DeepSeekClient(settings.get()).recognizeImage(bytes, mimeType)
   })
 
   handle('session:start', async (_sender, preparationId: string | null, mode: AudioMode) => {
+    await settings.initialize()
     if (!settings.isReady()) throw new Error('请先完成 API 配置')
     if (preparationId && !database.getPreparation(preparationId)) {
       throw new Error('面试档案不存在')

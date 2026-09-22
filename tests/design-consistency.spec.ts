@@ -38,4 +38,12 @@ describe('设计一致性', () => {
 
     expect(implementors).toEqual(['ConfirmDialog.tsx'])
   })
+
+  it('运行时资源不能使用只在开发服务器成立的根绝对路径', () => {
+    const offenders = sources
+      .filter((source) => /(?:addModule|fetch|new Worker)\(\s*['"]\/(?!\/)/.test(source.text))
+      .map((source) => source.name)
+
+    expect(offenders).toEqual([])
+  })
 })

@@ -17,6 +17,7 @@ export class MobileCompanionServer extends EventEmitter<{
   state: [CompanionConnectionState]
 }> {
   private server: Server | null = null
+  private webSocketServer: WebSocketServer | null = null
   private sockets = new Set<WebSocket>()
   private token = ''
   private url = ''
@@ -107,6 +108,7 @@ export class MobileCompanionServer extends EventEmitter<{
         errorCorrectionLevel: 'M',
       })
       this.server = server
+      this.webSocketServer = webSocketServer
       this.emitState()
       return this.getState()
     } catch (error) {
@@ -132,15 +134,19 @@ export class MobileCompanionServer extends EventEmitter<{
   async stop(reason: 'closed' | 'ended' = 'closed'): Promise<CompanionConnectionState> {
     const server = this.server
     if (!server) return this.getState()
+    const webSocketServer = this.webSocketServer
 
     this.broadcast({ type: reason })
     this.server = null
+    this.webSocketServer = null
     this.token = ''
     this.url = ''
     this.qrDataUrl = ''
-    for (const socket of this.sockets) socket.close(1000, reason)
+    // 退出应用时不能依赖手机完成 WebSocket 关闭握手；直接终止，避免 server.close()
+    // 因一台离线或休眠的手机无限等待。
+    for (const socket of this.sockets) socket.terminate()
     this.sockets.clear()
-    await close(server)
+    await Promise.all([close(server), closeWebSocketServer(webSocketServer)])
     this.emitState()
     return this.getState()
   }
@@ -230,4 +236,9 @@ function close(server: Server): Promise<void> {
     server.close(() => resolve())
     server.closeAllConnections()
   })
+}
+
+function closeWebSocketServer(server: WebSocketServer | null): Promise<void> {
+  if (!server) return Promise.resolve()
+  return new Promise((resolve) => server.close(() => resolve()))
 }

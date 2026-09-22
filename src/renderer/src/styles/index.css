@@ -164,6 +164,9 @@ button { color: inherit; }
 .drag-region { -webkit-app-region: drag; }
 .no-drag, button, input, textarea, label { -webkit-app-region: no-drag; }
 .loading { height: 100%; display: grid; place-items: center; color: var(--fg-muted); }
+.startup-error { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-6); padding: var(--sp-10); text-align: center; }
+.startup-error strong { font-size: var(--text-lg); }
+.startup-error p { max-width: 460px; color: var(--error-text); }
 .muted { color: var(--fg-muted); }
 .eyebrow { margin: 0 0 var(--sp-4); color: var(--fg-faint); font-size: var(--text-xs); font-weight: 700; letter-spacing: .18em; }
 

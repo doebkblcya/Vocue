@@ -13,6 +13,8 @@ extraResources:
     to: SystemAudioDump
   - from: assets/SystemAudioDump.LICENSE
     to: SystemAudioDump.LICENSE
+  - from: LICENSE
+    to: LICENSE
 
 mac:
   icon: build/icon.icns

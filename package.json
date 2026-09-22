@@ -3,7 +3,8 @@
   "productName": "Vocue",
   "version": "0.1.1",
   "private": true,
-  "description": "Vocue - 本地优先的 macOS AI 面试助手",
+  "license": "MIT",
+  "description": "Vocue - AI 面试助手：实时语音转写、回答建议、面试复盘与记录，支持 Apple Silicon Mac",
   "main": "out/main/index.js",
   "type": "module",
   "scripts": {

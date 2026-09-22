@@ -5,7 +5,11 @@
 </p>
 
 <p align="center">
-  面向 Apple Silicon Mac 的本地优先 AI 面试辅助工具。
+  面向 Apple Silicon Mac 的 AI 面试助手：实时语音转写、回答建议、面试复盘与记录。
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
 </p>
 
 Vocue 把实时语音转写、AI 回答建议、面试资料和复盘集中在一个轻量桌面应用中。它不要求注册 Vocue 账号，也没有独立云端后台；你使用自己的 DeepSeek 和豆包 API Key，档案与面试记录默认保存在本机。
@@ -112,4 +116,4 @@ DMG 输出到 `release/Vocue-<version>-arm64.dmg`。打包不会包含本机的 
 
 ## 许可证
 
-本仓库目前尚未声明项目许可证。公开可见不代表自动获得复制、修改或分发代码的授权；如果准备接受外部贡献或允许复用，请在公开前选择并添加合适的 `LICENSE`。
+本项目以 [MIT 许可证](LICENSE) 发布，版权所有 (c) 2026 doebkblcya。

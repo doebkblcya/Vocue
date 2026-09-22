@@ -28,6 +28,21 @@ function load(window: BrowserWindow, hash = ''): void {
   }
 }
 
+function protectNavigation(window: BrowserWindow): void {
+  const openExternalWebPage = (url: string): void => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
+  }
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalWebPage(url)
+    return { action: 'deny' }
+  })
+  window.webContents.on('will-navigate', (event, url) => {
+    event.preventDefault()
+    openExternalWebPage(url)
+  })
+}
+
 export function createMainWindow(): BrowserWindow {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow
   const workArea = screen.getPrimaryDisplay().workAreaSize
@@ -51,10 +66,7 @@ export function createMainWindow(): BrowserWindow {
   })
   mainWindow.setContentProtection(captureProtectionEnabled)
   mainWindow.once('ready-to-show', () => mainWindow?.show())
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url)) void shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  protectNavigation(mainWindow)
   mainWindow.on('closed', () => {
     mainWindow = null
   })
@@ -93,6 +105,7 @@ export function openFloatingWindow(): BrowserWindow {
   floatingWindow.setAlwaysOnTop(true, 'floating')
   floatingWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   floatingWindow.setContentProtection(captureProtectionEnabled)
+  protectNavigation(floatingWindow)
   floatingWindow.on('closed', () => {
     floatingWindow = null
   })
@@ -155,7 +168,7 @@ export function syncWindowThemeBackground(): void {
 
 export async function captureVisibilityPreview(): Promise<VisibilityTestResult> {
   if (process.platform === 'darwin' && systemPreferences.getMediaAccessStatus('screen') === 'denied') {
-    throw new Error('Electron 没有屏幕录制权限，请先在系统设置中开启后重试')
+    throw new Error('macOS 当前未授予 Vocue 屏幕录制权限，请在系统设置中重新授权后重试')
   }
 
   const originalProtection = captureProtectionEnabled
@@ -175,7 +188,7 @@ export async function captureVisibilityPreview(): Promise<VisibilityTestResult> 
 
 export async function captureQuestionScreenshot(): Promise<{ dataUrl: string; displayName: string }> {
   if (process.platform === 'darwin' && systemPreferences.getMediaAccessStatus('screen') === 'denied') {
-    throw new Error('Electron 没有屏幕录制权限，请先在系统设置中开启后重试')
+    throw new Error('macOS 当前未授予 Vocue 屏幕录制权限，请在系统设置中重新授权后重试')
   }
 
   const targetDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())

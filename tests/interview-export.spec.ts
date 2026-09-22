@@ -28,7 +28,7 @@ function record(overrides: Partial<InterviewRecord> = {}): InterviewRecord {
   return {
     id: 's',
     preparationId: null,
-    preparationName: '牛客网 ai面试交付顾问',
+    preparationName: '示例岗位二面',
     stage: null,
     status: 'completed',
     incompleteReason: null,
@@ -45,7 +45,7 @@ function record(overrides: Partial<InterviewRecord> = {}): InterviewRecord {
     reviewError: '',
     utterances: [
       utterance({ id: 'a', sequence: 1, role: 'candidate', text: '嗯，喂，能听得到吗？你好。', startMs: 78_000 }),
-      utterance({ id: 'b', sequence: 2, role: 'interviewer', text: '哎，齐恒是吧？', startMs: 81_000 }),
+      utterance({ id: 'b', sequence: 2, role: 'interviewer', text: '你好，我们开始吧。', startMs: 81_000 }),
     ],
     ...overrides,
   }
@@ -55,7 +55,7 @@ describe('面试记录导出', () => {
   it('原样输出：段落顺序、时间、角色都对，且不带 AI 复盘', () => {
     const markdown = buildInterviewMarkdown(record())
 
-    expect(markdown).toContain('# 牛客网 ai面试交付顾问')
+    expect(markdown).toContain('# 示例岗位二面')
     expect(markdown).toContain('- 开始时间：2026-09-20 10:59')
     expect(markdown).toContain('- 时长：38 分 56 秒')
     expect(markdown).toContain('- 转写：2 段')

@@ -1,79 +1,115 @@
 # Vocue
 
-只面向 Apple Silicon macOS 的个人 AI 面试助手。它只保留实时面试所需的核心链路，不包含账号、会员、支付、管理后台、多语言、PostgreSQL 和独立服务器。
+<p align="center">
+  <img src="build/icon.png" width="128" alt="Vocue 图标" />
+</p>
 
-## 当前能力
+<p align="center">
+  面向 Apple Silicon Mac 的本地优先 AI 面试辅助工具。
+</p>
 
-- 两个窗口：开始面试与管理档案的主窗口 + 始终置顶的实时回答窗口
-- 两种录音模式，判停方式不同（见下方说明）
-- 豆包流式语音识别 2.0（双向流式优化版端点 + Seed ASR 2.0 小时版）
-- DeepSeek 官方 API，使用 `deepseek-flash`（V4.1 Flash）非思考模式流式回答
-- 可选关闭 / 低 / 高 / 最大思考强度；默认关闭以保证实时性
-- 把之前的问答作为追问上下文，按 **6 万字**字符预算保留，超出后从最旧的一对问答开始丢弃
-- 回答先流式展示 2～3 条短要点，再展示控制篇幅的必要补充
-- 回答窗可以翻看之前几轮的回答（上一条 / 下一条 / 回到最新，或方向键）；回看时问题与答案一起回，正在生成的回答照常在后台进行
-- 回答窗可截取鼠标所在显示器提问，发送前会明确确认隐私影响
-- 本地 SQLite 保存面试准备，不永久保存完整会话
-- JD、简历及任意份数的补充资料；支持有文字层的 PDF、Markdown、TXT；资料合计超过 10 万字时只提醒，不拦截
-- 开始面试时选择系统音频或按住录制，也可以不选择档案直接使用通用模式
-- API Key 通过 macOS `safeStorage` 加密保存在本机
-- 新用户默认隐藏 Vocue 窗口，不让它出现在系统截图和会议录屏中
-- 设置页提供内存级“未保护 / 已保护”录屏可见性对比自检，不会保存预览图片
-- 外观支持跟随 macOS、固定浅色和固定深色，两个窗口会实时同步
+Vocue 把实时语音转写、AI 回答建议、面试资料和复盘集中在一个轻量桌面应用中。它不要求注册 Vocue 账号，也没有独立云端后台；你使用自己的 DeepSeek 和豆包 API Key，档案与面试记录默认保存在本机。
 
-## 两种录音模式
+> 请只在合法且获得允许的场景中使用，并遵守面试方、会议平台和所在地的隐私及录音规定。
 
-两条链路的判停来源是相反的，改参数前请先确认改的是哪一条。
+## 功能
 
-| | 按住说话 | 系统音频 |
+- **实时回答建议**：识别问题后流式生成要点和补充说明。
+- **两种输入方式**：支持系统音频持续识别，也支持按住按钮或空格录制。
+- **面试档案**：按岗位整理 JD、简历和补充资料，支持 PDF、Markdown 和纯文本。
+- **上下文追问**：保留最近问答，让连续追问保持上下文。
+- **截图提问**：截取鼠标所在显示器，并在发送前确认。
+- **面试记录与复盘**：保存本地转写，支持回声清理、导出 Markdown 和 AI 复盘。
+- **只读手机伴侣**：手动开启后，可在同一局域网的手机上查看问题和回答。
+- **录屏隐藏**：可让 Vocue 窗口尽量不出现在系统截图和会议录屏中，并提供可见性自检。
+- **浅色与深色主题**：支持跟随 macOS 或固定主题。
+
+## 系统要求
+
+- Apple Silicon Mac（M 系列芯片）
+- macOS 15 或更高版本
+- DeepSeek API Key
+- 豆包语音识别 2.0 新版 API Key
+- 可访问上述服务的网络连接
+
+目前不支持 Intel Mac、Windows 或 Linux。
+
+## 安装
+
+从项目的 [Releases](https://github.com/doebkblcya/Vocue/releases) 页面下载最新的 `Vocue-<version>-arm64.dmg`，打开后将 Vocue 拖入“应用程序”文件夹。
+
+当前公开构建使用免费的 ad-hoc 签名，没有经过 Apple 公证。首次打开时，如果 macOS 阻止启动：
+
+1. 在 Finder 的“应用程序”中右键 Vocue，选择“打开”；或
+2. 前往“系统设置 → 隐私与安全性”，选择“仍要打开”。
+
+这属于当前分发方式的限制，不代表安装包包含恶意内容。
+
+## 首次使用
+
+1. 打开设置，填写 DeepSeek 和豆包 API Key。
+2. 分别执行连接测试。
+3. 根据需要创建面试档案；也可以不使用档案，直接开始通用面试。
+4. 选择“系统音频”或“按住说话”，开始面试。
+5. 面试结束后，可在面试记录中查看转写、清理回声并生成复盘。
+
+首次保存或读取 API Key 时，macOS 可能要求输入登录钥匙串密码。这是系统在授权 Vocue 使用钥匙串加密能力。
+
+### macOS 权限
+
+| 权限 | 用途 | 何时需要 |
 | --- | --- | --- |
-| 采集 | 回答窗口中按住按钮或空格 | `SystemAudioDump` 持续采集系统声音 |
-| 判停来源 | 松手时客户端发「最后一包」 | 服务端 VAD 按静音判停（1000ms） |
-| VAD 参数 | **不配置**（否则中途停顿会被切句） | `end_window_size: 1000` + `force_to_speech_time: 1000` |
-| 二遍识别 | 关闭 | 开启 |
-| 结束信号 | 服务端 `is_last_package` | 服务端 `definite`——收到即提问，本地不再等待 |
+| 麦克风 | 录制并识别你的声音 | 使用“按住说话”时 |
+| 屏幕与系统音频录制 | 获取会议系统音频、截图提问和可见性自检 | 使用对应功能时 |
+| 本地网络 | 让手机访问只读伴侣页面 | 手动开启手机伴侣时 |
 
-两条链路都是**收到判停就把问题发出去**，中间没有任何缓冲：曾经有过一个「等 1 秒让文本落定」的缓冲，但它一次只装得下一句，两次判停挨得近时前一句会被覆盖、永远不被提问，所以删掉了。
+权限位置：`系统设置 → 隐私与安全性`。
 
-按住说话只在松手时才结算，所以面试官中途停顿不会被误判为结束。
+使用新的 ad-hoc 构建覆盖安装后，macOS 偶尔会保留旧权限记录。如果设置里显示已开启但 Vocue 仍提示无权限，请完全退出 Vocue，在权限列表中删除旧条目，再重新添加 `/Applications/Vocue.app` 并开启权限。
 
-## 本地运行
+## 数据与隐私
+
+- 面试档案、资料和面试记录保存在 `~/Library/Application Support/Vocue/`。
+- API Key 使用 Electron `safeStorage` 通过 macOS 钥匙串加密后保存在本机；应用界面只读取“是否已配置”，不会回显密钥。
+- 语音会发送到豆包进行实时识别；问题、必要的档案上下文、截图和复盘内容会按功能需要发送到 DeepSeek。
+- Vocue 当前没有账号系统、遥测或独立业务服务器。
+- 手机伴侣仅在你手动开启时监听局域网，使用随机临时令牌并保持只读。它使用局域网 HTTP/WebSocket，请不要在不可信的公共网络中开启。
+- “录屏隐藏”依赖 macOS 的内容保护能力，不应视为对外部摄像设备或所有第三方采集方式的绝对保证。
+
+卸载应用不会自动删除本地资料。如需彻底清除数据，请先退出 Vocue，再删除上述目录。
+
+## 从源码运行
 
 ```bash
-npm install
+git clone https://github.com/doebkblcya/Vocue.git
+cd Vocue
+npm ci
 npm run dev
 ```
 
-首次进入后填写 DeepSeek API Key 和豆包新版控制台 API Key。系统音频模式需要在：
-
-`系统设置 → 隐私与安全性 → 屏幕与系统音频录制`
-
-为 `SystemAudioDump` 打开权限。麦克风模式需要给 Electron 打开麦克风权限。
-
-## 验证
+常用命令：
 
 ```bash
-npm run type-check
-npm test
-npm run build
+npm run type-check  # TypeScript 类型检查
+npm test            # 运行测试
+npm run build       # 构建应用
+npm run dist:mac    # 生成 Apple Silicon DMG
 ```
 
-## 打包 DMG
+DMG 输出到 `release/Vocue-<version>-arm64.dmg`。打包不会包含本机的 API Key、数据库或面试资料。
 
-在 Apple Silicon Mac 上执行：
+## 技术栈
 
-```bash
-npm install
-npm run dist:mac
-```
-
-安装包输出到 `release/Vocue-<version>-arm64.dmg`，支持 macOS 15 及以上系统。当前使用免费的 ad-hoc 签名，不包含苹果公证；其他 Mac 首次打开时需要在“系统设置 → 隐私与安全性”中手动允许。接入 Apple Developer Program 后，可改用 Developer ID 签名和公证来去掉这一步安全拦截。
+- Electron、React、TypeScript、Vite
+- 本地 SQLite
+- DeepSeek Chat Completions API
+- 豆包流式语音识别 2.0
+- `SystemAudioDump` / ScreenCaptureKit 系统音频采集
 
 ## 第三方组件
 
-`assets/SystemAudioDump` 是预编译的 macOS 可执行文件，用于捕获系统音频并以 24kHz、16-bit、立体声 raw PCM 输出到 stdout。
+`assets/SystemAudioDump` 是 [sohzm/systemAudioDump](https://github.com/sohzm/systemAudioDump) 提供的预编译 macOS 可执行文件，用于采集系统音频。它以 MIT 许可证发布，对应声明保存在 [`assets/SystemAudioDump.LICENSE`](assets/SystemAudioDump.LICENSE)。
 
-- 来源：[sohzm/systemAudioDump](https://github.com/sohzm/systemAudioDump)
-- 许可：MIT
+## 许可证
 
-原项目提供的可执行文件在此处原样使用，未做修改。按 MIT 许可要求，分发时需保留其版权与许可声明，因此该文件对应的许可文本放在 `assets/SystemAudioDump.LICENSE`。
+本仓库目前尚未声明项目许可证。公开可见不代表自动获得复制、修改或分发代码的授权；如果准备接受外部贡献或允许复用，请在公开前选择并添加合适的 `LICENSE`。

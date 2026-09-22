@@ -8,10 +8,6 @@
   面向 Apple Silicon Mac 的 AI 面试助手：实时语音转写、回答建议、面试复盘与记录。
 </p>
 
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
-</p>
-
 Vocue 把实时语音转写、AI 回答建议、面试资料和复盘集中在一个轻量桌面应用中。它不要求注册 Vocue 账号，也没有独立云端后台；你使用自己的 DeepSeek 和豆包 API Key，档案与面试记录默认保存在本机。
 
 > 请只在合法且获得允许的场景中使用，并遵守面试方、会议平台和所在地的隐私及录音规定。

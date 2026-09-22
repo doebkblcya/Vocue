@@ -58,7 +58,16 @@ npm test
 npm run build
 ```
 
-本项目目前不包含 DMG、签名、公证、自动更新或线上服务部署流程。
+## 打包 DMG
+
+在 Apple Silicon Mac 上执行：
+
+```bash
+npm install
+npm run dist:mac
+```
+
+安装包输出到 `release/Vocue-<version>-arm64.dmg`，支持 macOS 15 及以上系统。当前使用免费的 ad-hoc 签名，不包含苹果公证；其他 Mac 首次打开时需要在“系统设置 → 隐私与安全性”中手动允许。接入 Apple Developer Program 后，可改用 Developer ID 签名和公证来去掉这一步安全拦截。
 
 ## 第三方组件
 

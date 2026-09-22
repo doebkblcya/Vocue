@@ -1,0 +1,44 @@
+appId: com.vocue.desktop
+productName: Vocue
+
+directories:
+  output: release
+
+files:
+  - out/**/*
+  - package.json
+
+extraResources:
+  - from: assets/SystemAudioDump
+    to: SystemAudioDump
+  - from: assets/SystemAudioDump.LICENSE
+    to: SystemAudioDump.LICENSE
+
+mac:
+  icon: build/icon.icns
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  category: public.app-category.productivity
+  minimumSystemVersion: "15.0"
+  identity: "-"
+  hardenedRuntime: false
+  notarize: false
+  extendInfo:
+    NSMicrophoneUsageDescription: Vocue 需要使用麦克风转写你的回答。
+    NSScreenCaptureUsageDescription: Vocue 需要读取屏幕内容，以识别面试问题并采集会议中的系统音频。
+    NSAudioCaptureUsageDescription: Vocue 需要采集会议中的系统音频并进行实时转写。
+    NSLocalNetworkUsageDescription: Vocue 仅在你开启手机伴侣时，通过局域网向手机同步只读面试内容。
+
+dmg:
+  title: "${productName} ${version}"
+  artifactName: "${productName}-${version}-${arch}.${ext}"
+  contents:
+    - x: 160
+      y: 190
+      type: file
+    - x: 380
+      y: 190
+      type: link
+      path: /Applications

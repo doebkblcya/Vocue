@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "pack:mac": "npm run build && electron-builder --mac dir --arm64",
+    "dist:mac": "npm run build && electron-builder --mac dmg --arm64",
     "preview": "electron-vite preview",
     "type-check": "tsc --noEmit",
     "test": "vitest run"
@@ -32,6 +34,7 @@
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.6.0",
     "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^4.0.0",
     "typescript": "^5.8.3",
     "vite": "^7.0.4",

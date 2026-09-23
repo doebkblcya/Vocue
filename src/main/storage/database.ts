@@ -15,6 +15,7 @@ import type {
   InterviewRecordSummary,
   InterviewRole,
   InterviewStage,
+  PreparationStatus,
 } from '../../shared/types'
 import type { EchoCleanupPlan } from '../session/echo-cleanup'
 import type { RecordingIssue } from '../../shared/recording-issue'
@@ -24,6 +25,7 @@ interface PreparationRow {
   name: string
   job_description: string
   stage: number | null
+  status: PreparationStatus
   resume_document_id: string | null
   created_at: string
   updated_at: string
@@ -78,6 +80,7 @@ export class LocalDatabase {
         name TEXT NOT NULL,
         job_description TEXT NOT NULL DEFAULT '',
         stage INTEGER,
+        status TEXT NOT NULL DEFAULT 'active',
         resume_document_id TEXT REFERENCES library_documents(id) ON DELETE SET NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -137,6 +140,7 @@ export class LocalDatabase {
     this.migrateToDocumentLibrary()
     this.migrateLibraryCategories()
     this.migratePreparationStage()
+    this.migratePreparationStatus()
     this.migrateIncompleteReason()
     this.migrateInterviewStage()
     const recoveredAt = new Date().toISOString()
@@ -346,6 +350,11 @@ export class LocalDatabase {
     this.db.exec('ALTER TABLE preparations ADD COLUMN stage INTEGER')
   }
 
+  private migratePreparationStatus(): void {
+    if (this.columnNames('preparations').includes('status')) return
+    this.db.exec("ALTER TABLE preparations ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+  }
+
   /**
    * 「不完整」的原因是后加的列。老记录保持 NULL——
    * 当时到底为什么断的已经无从考证，界面上给笼统说法，不编一个具体的。
@@ -386,7 +395,7 @@ export class LocalDatabase {
   listPreparations(): PreparationSummary[] {
     const rows = this.db
       .prepare(`
-        SELECT p.id, p.name, p.stage, p.updated_at,
+        SELECT p.id, p.name, p.stage, p.status, p.updated_at,
           CASE WHEN p.resume_document_id IS NULL THEN 0 ELSE 1 END AS has_resume,
           COUNT(d.id) AS document_count
         FROM preparations p
@@ -398,6 +407,7 @@ export class LocalDatabase {
       id: string
       name: string
       stage: number | null
+      status: PreparationStatus
       updated_at: string
       has_resume: number
       document_count: number
@@ -407,6 +417,7 @@ export class LocalDatabase {
       id: row.id,
       name: row.name,
       stage: row.stage,
+      status: row.status,
       updatedAt: row.updated_at,
       documentCount: Number(row.document_count),
       hasResume: Boolean(row.has_resume),
@@ -435,6 +446,7 @@ export class LocalDatabase {
       name: row.name,
       jobDescription: row.job_description,
       stage: row.stage,
+      status: row.status,
       resume: row.resume_document_id ? this.getLibraryDocument(row.resume_document_id) : null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -519,6 +531,17 @@ export class LocalDatabase {
     const summary = this.listPreparations().find((item) => item.id === id)
     if (!summary) throw new Error('档案不存在')
     return summary
+  }
+
+  setPreparationStatus(id: string, status: PreparationStatus): PreparationSummary {
+    if (status !== 'active' && status !== 'passed' && status !== 'rejected') {
+      throw new Error('面试结果不合法')
+    }
+    const result = this.db
+      .prepare('UPDATE preparations SET status = ?, updated_at = ? WHERE id = ?')
+      .run(status, new Date().toISOString(), id)
+    if (!result.changes) throw new Error('档案不存在')
+    return this.listPreparations().find((item) => item.id === id) as PreparationSummary
   }
 
   removePreparation(id: string): void {

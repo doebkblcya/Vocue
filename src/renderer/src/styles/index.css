@@ -340,6 +340,11 @@ button.titlebar-session:hover { background: var(--surface-hover); }
 
 /* 档案使用宽列表，名称始终完整显示；状态和动作共享同一条基线。 */
 .archive-list { display: grid; gap: var(--sp-5); }
+.archive-section-heading, .archive-finished > summary { display: flex; align-items: center; gap: var(--sp-4); margin-bottom: var(--sp-6); color: var(--fg-muted); font-size: var(--text-sm); font-weight: 700; }
+.archive-section-heading span, .archive-finished > summary span { color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.archive-finished { margin-top: var(--sp-10); }
+.archive-finished > summary { width: fit-content; cursor: pointer; }
+.archive-finished > summary:hover { color: var(--fg); }
 .archive-card { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--sp-8); padding: var(--sp-7) var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface-subtle); transition: border-color var(--ease), background var(--ease); }
 .archive-card:hover { border-color: var(--accent-line); background: var(--surface); }
 .archive-card-main { min-width: 0; display: flex; align-items: center; gap: var(--sp-6); }
@@ -350,6 +355,10 @@ button.titlebar-session:hover { background: var(--surface-hover); }
 .archive-card-stage > strong { font-size: var(--text-sm); font-weight: 650; }
 .archive-card-stage:hover { border-color: var(--accent-border); background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface-hover)); }
 .archive-card-stage.unset { color: var(--fg-secondary); border-color: var(--line); background: var(--surface-raised); }
+.archive-card-stage.static { cursor: default; color: var(--fg-muted); border-color: var(--line); background: var(--surface-raised); }
+.archive-outcome { width: fit-content; padding: var(--sp-2) var(--sp-4); border-radius: var(--r-pill); font-size: var(--text-xs); font-weight: 700; }
+.archive-outcome-passed { color: var(--success); background: var(--accent-soft); }
+.archive-outcome-rejected { color: var(--error-text); background: var(--danger-soft); }
 .archive-card-icon { width: 40px; height: 40px; display: grid; place-items: center; flex: 0 0 auto; border-radius: var(--r-md); color: var(--accent-text); background: var(--accent-soft); }
 .archive-card-copy, .archive-empty > span:last-child { min-width: 0; display: grid; gap: var(--sp-3); }
 .archive-card-copy strong { overflow-wrap: anywhere; color: var(--fg); font-size: var(--text-base); line-height: 1.45; }

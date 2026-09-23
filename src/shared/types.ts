@@ -5,6 +5,7 @@ export type AudioMode = 'system' | 'microphone'
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type ThinkingEffort = 'disabled' | 'low' | 'high' | 'max'
 export type DocumentKind = 'pdf' | 'markdown' | 'text'
+export type PreparationStatus = 'active' | 'passed' | 'rejected'
 
 export type { InterviewStage }
 
@@ -78,6 +79,7 @@ export interface Preparation {
   jobDescription: string
   /** 面到第几轮了；null 表示还没定 */
   stage: InterviewStage
+  status: PreparationStatus
   /** 从文档库选中的简历；未选择时为 null */
   resume: LibraryDocument | null
   createdAt: string
@@ -89,6 +91,7 @@ export interface PreparationSummary {
   id: string
   name: string
   stage: InterviewStage
+  status: PreparationStatus
   updatedAt: string
   documentCount: number
   hasResume: boolean
@@ -272,6 +275,7 @@ export interface VocueApi {
     }) => Promise<Preparation>
     /** 只改面试阶段：档案卡上「进入下一面」用的轻量入口 */
     setStage: (id: string, stage: InterviewStage) => Promise<PreparationSummary>
+    setStatus: (id: string, status: PreparationStatus) => Promise<PreparationSummary>
     remove: (id: string) => Promise<void>
   }
   library: {

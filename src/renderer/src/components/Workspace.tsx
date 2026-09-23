@@ -2,8 +2,9 @@ import { ArrowRight, Clock3, FileText, FolderPlus, Home, Library, Play, Settings
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { formatRecordStage } from '../../../shared/interview-record'
 import { formatStage, nextStage } from '../../../shared/stage'
-import type { AudioMode, InterviewRecordSummary, PreparationSummary } from '../../../shared/types'
+import type { AudioMode, InterviewRecordSummary, PreparationStatus, PreparationSummary } from '../../../shared/types'
 import { useSessionState } from '../hooks'
+import { getErrorMessage } from '../error-message'
 import { ArchiveCard } from './ArchiveCard'
 import { ArchiveEditorDialog } from './ArchiveEditorDialog'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -28,6 +29,8 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
   const [editingId, setEditingId] = useState<string | null | undefined>(undefined)
   /** 待确认的「推进一轮」目标；点档案卡上的阶段只是打开确认，不直接改 */
   const [pendingAdvance, setPendingAdvance] = useState<PreparationSummary | null>(null)
+  const [pendingOutcome, setPendingOutcome] = useState<PreparationSummary | null>(null)
+  const [archiveError, setArchiveError] = useState('')
   const session = useSessionState()
 
   const refresh = async (): Promise<void> => {
@@ -95,6 +98,19 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
     await refresh()
   }
 
+  const changeStatus = async (id: string, status: PreparationStatus): Promise<void> => {
+    setArchiveError('')
+    await window.vocue.preparations.setStatus(id, status)
+    await refresh()
+  }
+
+  const finishArchive = (preparation: PreparationSummary, status: 'passed' | 'rejected'): void => {
+    setPendingOutcome(null)
+    void changeStatus(preparation.id, status).catch((error: unknown) => {
+      setArchiveError(getErrorMessage(error))
+    })
+  }
+
   const openView = (next: WorkspaceView): void => {
     setView(next)
     setSelectedRecordId(null)
@@ -102,6 +118,24 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
 
   const isActive = session.status !== 'idle'
   const recentRecord = records[0]
+  const activePreparations = preparations.filter((preparation) => preparation.status === 'active')
+  const finishedPreparations = preparations.filter((preparation) => preparation.status !== 'active')
+
+  const renderArchive = (preparation: PreparationSummary): React.JSX.Element => (
+    <ArchiveCard
+      key={preparation.id}
+      preparation={preparation}
+      onEdit={() => setEditingId(preparation.id)}
+      onStart={() => openStart(preparation.id)}
+      onAdvanceStage={() => setPendingAdvance(preparation)}
+      onFinish={() => setPendingOutcome(preparation)}
+      onRestore={() => {
+        void changeStatus(preparation.id, 'active').catch((error: unknown) => {
+          setArchiveError(getErrorMessage(error))
+        })
+      }}
+    />
+  )
 
   return (
     <main className="home-shell workspace-shell">
@@ -219,10 +253,10 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
                   <div className="workspace-overview-copy">
                     <span>面试档案</span>
                     <strong>
-                      {preparations.length ? `${preparations.length} 份档案已就绪` : '还没有面试档案'}
+                      {activePreparations.length ? `${activePreparations.length} 份档案已就绪` : '还没有进行中的档案'}
                     </strong>
                     <small>
-                      {preparations.length
+                      {activePreparations.length
                         ? '集中管理岗位 JD、简历和补充资料。'
                         : '创建档案后，回答会更贴合岗位和个人经历。'}
                     </small>
@@ -267,26 +301,26 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
               )}
             />
             <div className="page-body">
-              {preparations.length ? (
-                <div className="archive-list">
-                  {preparations.map((preparation) => (
-                    <ArchiveCard
-                      key={preparation.id}
-                      preparation={preparation}
-                      onEdit={() => setEditingId(preparation.id)}
-                      onStart={() => openStart(preparation.id)}
-                      onAdvanceStage={() => setPendingAdvance(preparation)}
-                    />
-                  ))}
-                </div>
+              {archiveError && <p className="notice notice-error" role="alert">{archiveError}</p>}
+              {activePreparations.length ? (
+                <section className="archive-section" aria-label="进行中的档案">
+                  <div className="archive-section-heading">进行中 <span>{activePreparations.length}</span></div>
+                  <div className="archive-list">{activePreparations.map(renderArchive)}</div>
+                </section>
               ) : (
                 <button className="archive-empty" onClick={() => setEditingId(null)}>
                   <span className="archive-card-icon"><FolderPlus size={20} /></span>
                   <span>
-                    <strong>创建第一份面试档案</strong>
-                    <small>先到「文档库」放一份简历，再回来建档案。</small>
+                    <strong>{finishedPreparations.length ? '创建新的面试档案' : '创建第一份面试档案'}</strong>
+                    <small>可以先在「文档库」准备简历，再创建档案。</small>
                   </span>
                 </button>
+              )}
+              {finishedPreparations.length > 0 && (
+                <details className="archive-finished">
+                  <summary>已结束档案 <span>{finishedPreparations.length}</span></summary>
+                  <div className="archive-list">{finishedPreparations.map(renderArchive)}</div>
+                </details>
               )}
             </div>
           </div>
@@ -297,7 +331,7 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
 
       {startOpen && (
         <StartInterviewDialog
-          preparations={preparations}
+          preparations={activePreparations}
           initialPreparationId={startPreparationId}
           onClose={() => setStartOpen(false)}
           onStart={start}
@@ -328,6 +362,16 @@ export function Workspace({ openSettings }: Props): React.JSX.Element {
             setPendingAdvance(null)
             void advanceStage(preparation)
           }}
+        />
+      )}
+      {pendingOutcome && (
+        <ConfirmDialog
+          title="标记面试结果"
+          description={<>「<strong>{pendingOutcome.name}</strong>」将移到已结束档案，之后可以随时恢复。</>}
+          confirmLabel="已通过"
+          secondaryAction={{ label: '未通过', onClick: () => finishArchive(pendingOutcome, 'rejected') }}
+          onCancel={() => setPendingOutcome(null)}
+          onConfirm={() => finishArchive(pendingOutcome, 'passed')}
         />
       )}
     </main>

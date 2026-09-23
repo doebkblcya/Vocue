@@ -7,6 +7,7 @@ interface Props {
   confirmLabel: string
   onConfirm: () => void
   onCancel: () => void
+  secondaryAction?: { label: string; onClick: () => void }
 }
 
 /**
@@ -21,6 +22,7 @@ export function ConfirmDialog({
   confirmLabel,
   onConfirm,
   onCancel,
+  secondaryAction,
 }: Props): React.JSX.Element {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -42,6 +44,11 @@ export function ConfirmDialog({
         <p>{description}</p>
         <div>
           <button className="button ghost" onClick={onCancel}>取消</button>
+          {secondaryAction && (
+            <button className="button secondary" onClick={secondaryAction.onClick}>
+              {secondaryAction.label}
+            </button>
+          )}
           <button className="button primary" autoFocus onClick={onConfirm}>{confirmLabel}</button>
         </div>
       </section>

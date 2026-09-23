@@ -161,7 +161,7 @@ describe('旧结构迁移', () => {
     databases.push({ database, directory })
 
     // 不猜轮次：老档案一律未设置，推进与否由用户决定
-    expect(database.listPreparations()[0]).toMatchObject({ name: '老档案', stage: null })
+    expect(database.listPreparations()[0]).toMatchObject({ name: '老档案', stage: null, status: 'active' })
   })
 
   it('给老记录补 incomplete_reason 列，历史值保持为空', () => {
@@ -229,6 +229,34 @@ describe('旧结构迁移', () => {
     // 建记录时没抄轮次。档案上的 stage 表示「下一场是第几面」，面完一场就会推进一轮，
     // 照它回填只会把历史记录填成今天这一轮
     expect(database.getInterviewSession('s1')).toMatchObject({ stage: null })
+  })
+})
+
+describe('面试档案结果', () => {
+  it('结案和恢复保留档案及已有面试记录', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'vocue-preparation-status-'))
+    const path = join(directory, 'vocue.sqlite3')
+    const database = new LocalDatabase(path)
+    databases.push({ database, directory })
+
+    const preparation = database.savePreparation({
+      name: '示例岗位',
+      jobDescription: '岗位要求',
+      stage: 2,
+      resumeDocumentId: null,
+      documentIds: [],
+    })
+    const record = database.createInterviewSession({
+      preparationId: preparation.id,
+      preparationName: preparation.name,
+      stage: preparation.stage,
+    })
+
+    expect(database.setPreparationStatus(preparation.id, 'rejected').status).toBe('rejected')
+    expect(database.setPreparationStatus(preparation.id, 'passed').status).toBe('passed')
+    expect(database.setPreparationStatus(preparation.id, 'active').status).toBe('active')
+    expect(database.getPreparation(preparation.id)).toMatchObject({ stage: 2, status: 'active' })
+    expect(database.getInterviewSession(record.id)).toMatchObject({ preparationName: '示例岗位', stage: 2 })
   })
 })
 

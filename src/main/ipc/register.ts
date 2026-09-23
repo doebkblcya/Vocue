@@ -6,6 +6,7 @@ import type {
   ExtractedDocument,
   InterviewStage,
   LibraryCategory,
+  PreparationStatus,
 } from '../../shared/types'
 import { toUserMessage } from '../../shared/error-message'
 import { DeepSeekClient } from '../ai/deepseek-client'
@@ -113,6 +114,9 @@ export function registerIpc(
   handle('preparations:set-stage', (_sender, id: string, stage: InterviewStage) =>
     database.setPreparationStage(id, stage),
   )
+  handle('preparations:set-status', (_sender, id: string, status: PreparationStatus) =>
+    database.setPreparationStatus(id, status),
+  )
   handle('preparations:remove', (_sender, id: string) => database.removePreparation(id))
 
   handle('library:list', () => database.listLibraryDocuments())
@@ -150,8 +154,10 @@ export function registerIpc(
   handle('session:start', async (_sender, preparationId: string | null, mode: AudioMode) => {
     await settings.initialize()
     if (!settings.isReady()) throw new Error('请先完成 API 配置')
-    if (preparationId && !database.getPreparation(preparationId)) {
-      throw new Error('面试档案不存在')
+    if (preparationId) {
+      const preparation = database.getPreparation(preparationId)
+      if (!preparation) throw new Error('面试档案不存在')
+      if (preparation.status !== 'active') throw new Error('这份档案已结束，请先恢复为进行中')
     }
     try {
       await session.start(preparationId, mode)

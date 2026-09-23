@@ -5,6 +5,7 @@ import type {
   ExtractedDocument,
   InterviewStage,
   LibraryCategory,
+  PreparationStatus,
   VocueApi,
 } from '../shared/types'
 
@@ -35,6 +36,8 @@ const api: VocueApi = {
     }) => ipcRenderer.invoke('preparations:save', input),
     setStage: (id: string, stage: InterviewStage) =>
       ipcRenderer.invoke('preparations:set-stage', id, stage),
+    setStatus: (id: string, status: PreparationStatus) =>
+      ipcRenderer.invoke('preparations:set-status', id, status),
     remove: (id: string) => ipcRenderer.invoke('preparations:remove', id),
   },
   library: {
